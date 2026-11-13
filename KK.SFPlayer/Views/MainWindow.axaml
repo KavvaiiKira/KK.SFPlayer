@@ -27,7 +27,7 @@
                         <TextBlock Margin="16,0"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource AppTextMutedBrush}"
-                                   FontSize="13"
+                                   FontSize="15"
                                    FontWeight="SemiBold"
                                    Text="KK.SFPlayer" />
                     </Border>
