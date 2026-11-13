@@ -22,6 +22,7 @@
         FontFamily="{DynamicResource BrandFontFamily}"
         Foreground="{DynamicResource AppTextBrush}"
         Topmost="{Binding AlwaysOnTop}"
+        Icon="avares://KK.SFPlayer/Assets/Brand/kk-sfplayer.ico"
         Title="{x:Static constants:ApplicationConstants.AppName}">
     <Border Background="{DynamicResource AppBackgroundBrush}"
             BorderBrush="{DynamicResource AppBorderBrush}"
@@ -33,12 +34,19 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <Border Background="Transparent"
                             PointerPressed="OnTitleBarPointerPressed">
-                        <TextBlock Margin="16,0"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource AppTextMutedBrush}"
-                                   FontSize="15"
-                                   FontWeight="SemiBold"
-                                   Text="{x:Static constants:ApplicationConstants.AppName}" />
+                        <StackPanel Margin="12,0"
+                                    VerticalAlignment="Center"
+                                    Orientation="Horizontal"
+                                    Spacing="8">
+                            <Image Width="24"
+                                   Height="24"
+                                   Source="avares://KK.SFPlayer/Assets/Brand/kk-brand.png" />
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="{DynamicResource AppTextMutedBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="{x:Static constants:ApplicationConstants.AppName}" />
+                        </StackPanel>
                     </Border>
                     <StackPanel Grid.Column="1"
                                 Margin="16,0"

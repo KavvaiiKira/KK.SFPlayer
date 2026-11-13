@@ -115,7 +115,7 @@ namespace KK.SFPlayer.Controls
         private void ShowFailure(string message)
         {
             ErrorMessage = message;
-            IsPlaceholderVisible = false;
+            IsPlaceholderVisible = true;
             HasFailed = true;
         }
 
