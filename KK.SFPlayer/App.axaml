@@ -1,0 +1,46 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="KK.SFPlayer.App"
+             RequestedThemeVariant="Dark">
+    <Application.Resources>
+        <FontFamily x:Key="BrandFontFamily">avares://KK.SFPlayer/Assets/Fonts#Exo 2</FontFamily>
+        <Color x:Key="AppBackgroundColor">#0C0814</Color>
+        <Color x:Key="AppSurfaceColor">#151022</Color>
+        <Color x:Key="AppBorderColor">#3B2B5A</Color>
+        <Color x:Key="AppTextMutedColor">#A99EBE</Color>
+        <SolidColorBrush x:Key="AppBackgroundBrush" Color="{StaticResource AppBackgroundColor}" />
+        <SolidColorBrush x:Key="AppSurfaceBrush" Color="{StaticResource AppSurfaceColor}" />
+        <SolidColorBrush x:Key="AppBorderBrush" Color="{StaticResource AppBorderColor}" />
+        <SolidColorBrush x:Key="AppTextMutedBrush" Color="{StaticResource AppTextMutedColor}" />
+    </Application.Resources>
+    <Application.Styles>
+        <FluentTheme />
+        <Style Selector="Button.window-control">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="MinWidth" Value="14" />
+            <Setter Property="MinHeight" Value="14" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="7" />
+        </Style>
+        <Style Selector="Button.window-control.minimize">
+            <Setter Property="Background" Value="#7567E8" />
+        </Style>
+        <Style Selector="Button.window-control.minimize:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#9589F0" />
+        </Style>
+        <Style Selector="Button.window-control.minimize:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#6254CE" />
+        </Style>
+        <Style Selector="Button.window-control.close">
+            <Setter Property="Background" Value="#E052A0" />
+        </Style>
+        <Style Selector="Button.window-control.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#EF79B7" />
+        </Style>
+        <Style Selector="Button.window-control.close:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#BF3D85" />
+        </Style>
+    </Application.Styles>
+</Application>
