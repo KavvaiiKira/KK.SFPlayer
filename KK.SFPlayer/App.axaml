@@ -3,18 +3,132 @@
              x:Class="KK.SFPlayer.App"
              RequestedThemeVariant="Dark">
     <Application.Resources>
+        <Thickness x:Key="PageContentMargin">16,12,16,12</Thickness>
         <FontFamily x:Key="BrandFontFamily">avares://KK.SFPlayer/Assets/Fonts#Exo 2</FontFamily>
         <Color x:Key="AppBackgroundColor">#0C0814</Color>
         <Color x:Key="AppSurfaceColor">#151022</Color>
         <Color x:Key="AppBorderColor">#3B2B5A</Color>
         <Color x:Key="AppTextMutedColor">#A99EBE</Color>
+        <Color x:Key="AppSurfaceRaisedColor">#1D1530</Color>
+        <Color x:Key="AppSurfaceHoverColor">#281C40</Color>
+        <Color x:Key="AppPrimaryColor">#8B5CF6</Color>
+        <Color x:Key="AppPrimaryHoverColor">#A78BFA</Color>
+        <Color x:Key="AppTextColor">#F4F0FF</Color>
         <SolidColorBrush x:Key="AppBackgroundBrush" Color="{StaticResource AppBackgroundColor}" />
         <SolidColorBrush x:Key="AppSurfaceBrush" Color="{StaticResource AppSurfaceColor}" />
         <SolidColorBrush x:Key="AppBorderBrush" Color="{StaticResource AppBorderColor}" />
         <SolidColorBrush x:Key="AppTextMutedBrush" Color="{StaticResource AppTextMutedColor}" />
+        <SolidColorBrush x:Key="AppSurfaceRaisedBrush" Color="{StaticResource AppSurfaceRaisedColor}" />
+        <SolidColorBrush x:Key="AppSurfaceHoverBrush" Color="{StaticResource AppSurfaceHoverColor}" />
+        <SolidColorBrush x:Key="AppPrimaryBrush" Color="{StaticResource AppPrimaryColor}" />
+        <SolidColorBrush x:Key="AppPrimaryHoverBrush" Color="{StaticResource AppPrimaryHoverColor}" />
+        <SolidColorBrush x:Key="AppTextBrush" Color="{StaticResource AppTextColor}" />
+        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="{StaticResource AppSurfaceRaisedColor}" />
+        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="{StaticResource AppSurfaceHoverColor}" />
+        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource AppPrimaryHoverColor}" />
+        <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="{StaticResource AppPrimaryColor}" />
+        <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="{StaticResource AppPrimaryHoverColor}" />
+        <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked" Color="{StaticResource AppTextColor}" />
     </Application.Resources>
     <Application.Styles>
-        <FluentTheme />
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Dark" Accent="#8B5CF6" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
+        <Style Selector="Button.primary, Button.secondary, Button.icon-button, Button.library-row, Button.link">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{DynamicResource AppPrimaryBrush}" />
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppPrimaryHoverBrush}" />
+        </Style>
+        <Style Selector="Button.secondary, Button.icon-button">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceRaisedBrush}" />
+        </Style>
+        <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.icon-button:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.library-row:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceHoverBrush}" />
+        </Style>
+        <Style Selector="Button.compact">
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
+        <Style Selector="Button.dialog-action">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="12,0" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.settings-action">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinHeight" Value="30" />
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+            <Setter Property="FontFamily" Value="{DynamicResource BrandFontFamily}" />
+        </Style>
+        <Style Selector="TextBox.form-field">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.icon-button">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.icon-button.active">
+            <Setter Property="Background" Value="{DynamicResource AppPrimaryBrush}" />
+        </Style>
+        <Style Selector="Button.icon-button.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppPrimaryHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="Button.icon-button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="Button.icon-button.active:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppPrimaryBrush}" />
+        </Style>
+        <Style Selector="ListBox.library">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox.library ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.library-row">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Padding" Value="8" />
+        </Style>
+        <Style Selector="Button.link">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextMutedBrush}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="24" />
+            <Setter Property="MinHeight" Value="28" />
+        </Style>
         <Style Selector="Button.window-control">
             <Setter Property="Width" Value="14" />
             <Setter Property="Height" Value="14" />

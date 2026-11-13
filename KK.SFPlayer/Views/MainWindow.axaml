@@ -1,6 +1,13 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:constants="using:KK.SFPlayer.Constants"
+        xmlns:vm="using:KK.SFPlayer.ViewModels"
+        xmlns:models="using:KK.SFPlayer.Models"
+        xmlns:controls="using:KK.SFPlayer.Controls"
+        xmlns:views="using:KK.SFPlayer.Views"
         x:Class="KK.SFPlayer.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        x:CompileBindings="True"
         Width="450"
         Height="450"
         MinWidth="450"
@@ -13,7 +20,9 @@
         Background="Transparent"
         TransparencyLevelHint="Transparent"
         FontFamily="{DynamicResource BrandFontFamily}"
-        Title="KK.SFPlayer">
+        Foreground="{DynamicResource AppTextBrush}"
+        Topmost="{Binding AlwaysOnTop}"
+        Title="{x:Static constants:ApplicationConstants.AppName}">
     <Border Background="{DynamicResource AppBackgroundBrush}"
             BorderBrush="{DynamicResource AppBorderBrush}"
             BorderThickness="1"
@@ -29,7 +38,7 @@
                                    Foreground="{DynamicResource AppTextMutedBrush}"
                                    FontSize="15"
                                    FontWeight="SemiBold"
-                                   Text="KK.SFPlayer" />
+                                   Text="{x:Static constants:ApplicationConstants.AppName}" />
                     </Border>
                     <StackPanel Grid.Column="1"
                                 Margin="16,0"
@@ -37,15 +46,224 @@
                                 Orientation="Horizontal"
                                 Spacing="10">
                         <Button Classes="window-control minimize"
-                                AutomationProperties.Name="Свернуть"
-                                ToolTip.Tip="Свернуть"
+                                AutomationProperties.Name="{x:Static constants:WindowConstants.Minimize}"
+                                ToolTip.Tip="{x:Static constants:WindowConstants.Minimize}"
                                 Click="OnMinimizeClick" />
                         <Button Classes="window-control close"
-                                AutomationProperties.Name="Закрыть"
-                                ToolTip.Tip="Закрыть"
+                                AutomationProperties.Name="{x:Static constants:WindowConstants.Close}"
+                                ToolTip.Tip="{x:Static constants:WindowConstants.Close}"
                                 Click="OnCloseClick" />
                     </StackPanel>
                 </Grid>
+            </Border>
+            <Grid Grid.Row="1"
+                  Margin="{DynamicResource PageContentMargin}"
+                  RowDefinitions="*,Auto,42"
+                  IsVisible="{Binding !IsSettingsOpen}"
+                  IsEnabled="{Binding !IsLogoutConfirmationOpen}">
+                <TextBlock Margin="16"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource AppTextMutedBrush}"
+                           FontSize="14"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           Text="{x:Static constants:SettingsConstants.EmptyClientId}"
+                           IsVisible="{Binding !HasClientId}" />
+                <Grid IsVisible="{Binding ShowPlaylists}"
+                      RowDefinitions="38,*">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock VerticalAlignment="Center"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Text="{x:Static constants:PlaybackConstants.Playlists}" />
+                        <Button Grid.Column="1"
+                                Classes="secondary compact"
+                                Content="{x:Static constants:PlaybackConstants.Refresh}"
+                                Command="{Binding RefreshCommand}" />
+                    </Grid>
+                    <ListBox Grid.Row="1"
+                             Margin="0,6,0,0"
+                             Classes="library"
+                             ItemsSource="{Binding Playlists}"
+                             IsEnabled="{Binding !IsBusy}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:PlaylistInfo">
+                                <Button Classes="library-row"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch"
+                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenPlaylistCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Grid ColumnDefinitions="48,12,*,26">
+                                        <Border Width="48" Height="48" Background="{DynamicResource AppSurfaceRaisedBrush}">
+                                            <controls:RemoteImage Url="{Binding ImageUrl}" Stretch="Uniform" />
+                                        </Border>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Owner}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <Button Grid.Column="3"
+                                                Classes="link"
+                                                Content="{x:Static constants:PlaybackConstants.ExternalLink}"
+                                                ToolTip.Tip="{x:Static constants:PlaybackConstants.OpenInSpotify}"
+                                                AutomationProperties.Name="{x:Static constants:PlaybackConstants.OpenInSpotify}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenSpotifyCommand}"
+                                                CommandParameter="{Binding Uri}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+                <Grid IsVisible="{Binding HasSelectedPlaylist}"
+                      RowDefinitions="36,64,*">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Button Classes="secondary compact"
+                                HorizontalAlignment="Left"
+                                Content="{x:Static constants:PlaybackConstants.Back}"
+                                Command="{Binding BackCommand}" />
+                        <Button Grid.Column="1"
+                                Classes="primary compact"
+                                Content="{x:Static constants:PlaybackConstants.PlayPlaylist}"
+                                Command="{Binding PlayPlaylistCommand}" />
+                    </Grid>
+                    <Grid Grid.Row="1" Margin="0,8,0,8" ColumnDefinitions="48,12,*,26">
+                        <Border Width="48" Height="48" Background="{DynamicResource AppSurfaceRaisedBrush}">
+                            <controls:RemoteImage Url="{Binding SelectedPlaylist.ImageUrl}" Stretch="Uniform" />
+                        </Border>
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
+                            <TextBlock Text="{Binding SelectedPlaylist.Name}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding SelectedPlaylist.Owner}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button Grid.Column="3" Classes="link"
+                                Content="{x:Static constants:PlaybackConstants.ExternalLink}"
+                                ToolTip.Tip="{x:Static constants:PlaybackConstants.OpenInSpotify}"
+                                Command="{Binding OpenSpotifyCommand}"
+                                CommandParameter="{Binding SelectedPlaylist.Uri}" />
+                    </Grid>
+                    <ListBox Grid.Row="2" Classes="library" ItemsSource="{Binding Tracks}" IsEnabled="{Binding !IsBusy}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:TrackInfo">
+                                <Button Classes="library-row"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch"
+                                        ToolTip.Tip="{x:Static constants:PlaybackConstants.PlayTrack}"
+                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).PlayTrackCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Grid ColumnDefinitions="40,10,*,38,26">
+                                        <Border Width="40" Height="40" Background="{DynamicResource AppSurfaceRaisedBrush}">
+                                            <controls:RemoteImage Url="{Binding ImageUrl}" Stretch="Uniform" />
+                                        </Border>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Artists}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                   Text="{Binding Duration}" FontSize="11" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                        <Button Grid.Column="4" Classes="link"
+                                                Content="{x:Static constants:PlaybackConstants.ExternalLink}"
+                                                ToolTip.Tip="{x:Static constants:PlaybackConstants.OpenInSpotify}"
+                                                AutomationProperties.Name="{x:Static constants:PlaybackConstants.OpenInSpotify}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenSpotifyCommand}"
+                                                CommandParameter="{Binding Uri}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+                <StackPanel Grid.Row="1" Margin="0,6,0,4" Spacing="4">
+                    <ProgressBar Height="2" IsIndeterminate="True" IsVisible="{Binding IsBusy}" />
+                    <TextBlock MaxHeight="48" Text="{Binding Status}" IsVisible="{Binding HasStatus}"
+                               Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextWrapping="Wrap" />
+                    <Button Classes="secondary compact"
+                            Content="{x:Static constants:CommonConstants.Retry}"
+                            Command="{Binding RetryCommand}"
+                            IsVisible="{Binding HasRetry}" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="8">
+                    <Button Classes="icon-button"
+                            Classes.active="{Binding AlwaysOnTop}"
+                            ToolTip.Tip="{Binding TopmostTooltip}"
+                            AutomationProperties.Name="{Binding TopmostTooltip}"
+                            Command="{Binding ToggleAlwaysOnTopCommand}">
+                        <Viewbox Width="18" Height="18">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M8.5,3 L10.3,8.2 L15.5,10 L10.3,11.8 L8.5,17 L6.7,11.8 L1.5,10 Z M17.5,13 L18.7,16.8 L22.5,18 L18.7,19.2 L17.5,23 L16.3,19.2 L12.5,18 Z M18.5,1 L19.2,3.3 L21.5,4 L19.2,4.7 L18.5,7 L17.8,4.7 L15.5,4 L17.8,3.3 Z"
+                                      Stroke="{DynamicResource AppTextBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeJoin="Round" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="AccountButton"
+                            Classes="icon-button"
+                            IsVisible="{Binding HasClientId}"
+                            Classes.active="{Binding IsConnected}"
+                            ToolTip.Tip="{Binding AccountTooltip}"
+                            AutomationProperties.Name="{Binding AccountTooltip}"
+                            Command="{Binding AccountCommand}">
+                        <Viewbox Width="18" Height="18">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M4,21 V19 A8,8 0 0 1 20,19 V21 M16,7 A4,4 0 1 1 8,7 A4,4 0 1 1 16,7 Z"
+                                      Stroke="{DynamicResource AppTextBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeLineCap="Round"
+                                      StrokeJoin="Round" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                    <Button Classes="icon-button"
+                            ToolTip.Tip="{x:Static constants:SettingsConstants.Settings}"
+                            AutomationProperties.Name="{x:Static constants:SettingsConstants.Settings}"
+                            Command="{Binding OpenSettingsCommand}">
+                        <Viewbox Width="18" Height="18">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M9,1 L15,1 L15.6,4.2 L17,5 L20.1,3.9 L23.1,9.1 L20.6,11.2 L20.6,12.8 L23.1,14.9 L20.1,20.1 L17,19 L15.6,19.8 L15,23 L9,23 L8.4,19.8 L7,19 L3.9,20.1 L0.9,14.9 L3.4,12.8 L3.4,11.2 L0.9,9.1 L3.9,3.9 L7,5 L8.4,4.2 Z M16,12 A4,4 0 1 1 8,12 A4,4 0 1 1 16,12 Z"
+                                      Stroke="{DynamicResource AppTextBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeJoin="Round" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                </StackPanel>
+            </Grid>
+            <Grid Grid.Row="1" IsVisible="{Binding IsSettingsOpen}">
+                <views:SettingsView DataContext="{Binding Settings}" />
+            </Grid>
+            <Border Grid.RowSpan="2"
+                    ZIndex="10"
+                    Background="#99000000"
+                    CornerRadius="14"
+                    IsVisible="{Binding IsLogoutConfirmationOpen}">
+                <Border Width="340"
+                        Padding="20,20,20,24"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource AppSurfaceBrush}"
+                        BorderBrush="{DynamicResource AppBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="14"
+                        KeyboardNavigation.TabNavigation="Cycle">
+                    <StackPanel Spacing="16">
+                        <TextBlock FontSize="18" FontWeight="SemiBold" Text="{x:Static constants:AuthenticationConstants.SignOut}" />
+                        <TextBlock FontSize="14" TextWrapping="Wrap" Text="{x:Static constants:AuthenticationConstants.ConfirmLogout}" />
+                        <Grid ColumnDefinitions="*,10,*">
+                            <Button x:Name="CancelLogoutButton"
+                                    Classes="secondary dialog-action"
+                                    HorizontalAlignment="Stretch"
+                                    Content="{x:Static constants:CommonConstants.Cancel}"
+                                    IsCancel="True"
+                                    IsDefault="True"
+                                    Command="{Binding CancelLogoutCommand}" />
+                            <Button Grid.Column="2"
+                                    Classes="primary dialog-action"
+                                    HorizontalAlignment="Stretch"
+                                    Content="{x:Static constants:AuthenticationConstants.SignOut}"
+                                    Command="{Binding ConfirmLogoutCommand}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
             </Border>
         </Grid>
     </Border>

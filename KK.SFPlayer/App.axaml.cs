@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using KK.SFPlayer.Views;
+using KK.SFPlayer.Services;
+using KK.SFPlayer.ViewModels;
 
 namespace KK.SFPlayer
 {
@@ -13,7 +15,10 @@ namespace KK.SFPlayer
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                desktop.MainWindow = new MainWindow();
+                var settings = new SettingsStore();
+                var player = new MPlayerService(settings);
+                var viewModel = new MainViewModel(player, settings, new StartupService());
+                desktop.MainWindow = new MainWindow { DataContext = viewModel };
             }
 
             base.OnFrameworkInitializationCompleted();

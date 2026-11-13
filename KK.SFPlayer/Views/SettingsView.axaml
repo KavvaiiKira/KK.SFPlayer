@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:constants="using:KK.SFPlayer.Constants"
+             xmlns:vm="using:KK.SFPlayer.ViewModels"
+             x:Class="KK.SFPlayer.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel"
+             x:CompileBindings="True">
+    <Grid Margin="{DynamicResource PageContentMargin}" RowDefinitions="*,Auto">
+        <ScrollViewer Margin="0,0,0,16" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="16">
+                <TextBlock FontSize="18" FontWeight="SemiBold" Text="{x:Static constants:SettingsConstants.Settings}" />
+                <StackPanel Spacing="6">
+                    <TextBlock FontSize="12" Foreground="{DynamicResource AppTextMutedBrush}" Text="{x:Static constants:SettingsConstants.ClientId}" />
+                    <TextBox Classes="form-field"
+                             Text="{Binding ClientId}"
+                             AutomationProperties.Name="{x:Static constants:SettingsConstants.ClientId}" />
+                </StackPanel>
+                <TextBlock FontSize="12"
+                           Foreground="{DynamicResource AppTextMutedBrush}"
+                           TextWrapping="Wrap"
+                           Text="{Binding Error}"
+                           IsVisible="{Binding HasError}" />
+            </StackPanel>
+        </ScrollViewer>
+        <Grid Grid.Row="1" Height="30" ColumnDefinitions="*,16,Auto">
+            <CheckBox Height="30"
+                      MinHeight="30"
+                      VerticalAlignment="Center"
+                      FontSize="12"
+                      Content="{x:Static constants:SettingsConstants.StartWithWindows}"
+                      IsChecked="{Binding StartWithWindows}"
+                      IsEnabled="{Binding StartupAvailable}" />
+            <StackPanel Grid.Column="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                <Button Classes="secondary dialog-action settings-action"
+                        Command="{Binding CancelCommand}">
+                    <TextBlock LineHeight="18" Text="{x:Static constants:CommonConstants.Cancel}" />
+                </Button>
+                <Button Classes="primary dialog-action settings-action"
+                        Command="{Binding SaveCommand}">
+                    <TextBlock LineHeight="18" Text="{x:Static constants:CommonConstants.Save}" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>
