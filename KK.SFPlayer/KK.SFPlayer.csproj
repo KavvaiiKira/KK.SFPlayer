@@ -15,5 +15,6 @@
     <PackageReference Include="Avalonia" Version="12.1.6" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
+    <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
   </ItemGroup>
 </Project>
