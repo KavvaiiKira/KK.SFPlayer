@@ -27,14 +27,20 @@ namespace KK.SFPlayer.Services
         private readonly SpotifyClientConfig _configuration;
         private readonly OAuthClient _oauth;
         private readonly HttpClient? _httpClient;
+        private readonly ILocalPlaybackEngine? _playback;
         private readonly SemaphoreSlim _tokenLock = new(1, 1);
         private PKCETokenResponse? _token;
         private string _clientId = string.Empty;
         private SpotifyClient? _client;
 
-        public MPlayerService(SettingsStore settings, SpotifyClientConfig? configuration = null)
+        public MPlayerService(SettingsStore settings, SpotifyClientConfig? configuration = null, ILocalPlaybackEngine? playback = null)
         {
             _settings = settings;
+            _playback = playback;
+            if (_playback is not null)
+            {
+                _playback.PlayingChanged += OnPlayingChanged;
+            }
             if (configuration is null)
             {
                 _httpClient = new HttpClient(new TransientRetryHandler()) { Timeout = TimeSpan.FromSeconds(20) };
@@ -46,6 +52,22 @@ namespace KK.SFPlayer.Services
         }
 
         public bool IsConnected => _client is not null;
+
+        public event EventHandler<bool>? PlayingChanged;
+
+        private void OnPlayingChanged(object? sender, bool playing) => PlayingChanged?.Invoke(this, playing);
+
+        public void TogglePause()
+        {
+            if (!IsConnected || _playback is null)
+            {
+                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
+            }
+
+            _playback.TogglePause();
+        }
+
+        public void SetVolume(double volume) => _playback?.SetVolume(Math.Clamp(volume, 0, 1));
 
         public async Task<bool> RestoreAsync(string clientId, CancellationToken cancellationToken)
         {
@@ -89,7 +111,8 @@ namespace KK.SFPlayer.Services
                 CodeChallenge = challenge,
                 CodeChallengeMethod = "S256",
                 State = state,
-                Scope = [Scopes.PlaylistReadPrivate, Scopes.PlaylistReadCollaborative, Scopes.UserModifyPlaybackState],
+                Scope = [Scopes.PlaylistReadPrivate, Scopes.PlaylistReadCollaborative, Scopes.UserModifyPlaybackState,
+                    Scopes.Streaming, Scopes.UserReadEmail, Scopes.UserReadPrivate],
             };
 
             Process.Start(new ProcessStartInfo(request.ToUri().AbsoluteUri) { UseShellExecute = true });
@@ -145,6 +168,7 @@ namespace KK.SFPlayer.Services
 
         public void Disconnect()
         {
+            _playback?.Reset();
             _client = null;
             _token = null;
             _clientId = string.Empty;
@@ -237,6 +261,28 @@ namespace KK.SFPlayer.Services
             return new PlaylistPage(playlists, offset + items.Count, items.Count > 0 && !string.IsNullOrEmpty(page.Next));
         }
 
+        public async Task<TrackPage> GetTrackPageAsync(string playlistId, int offset, CancellationToken cancellationToken)
+        {
+            var client = await GetClientAsync(cancellationToken);
+            var page = await client.Playlists.GetPlaylistItems(
+                playlistId,
+                new PlaylistGetItemsRequest { Limit = PlaylistConstants.TrackPageSize, Offset = offset },
+                cancellationToken);
+            var items = page.Items ?? [];
+            var tracks = new List<TrackInfo>();
+            for (var index = 0; index < items.Count; index++)
+            {
+                var track = MapTrack(items[index], offset + index);
+                if (track is not null)
+                {
+                    tracks.Add(track);
+                }
+            }
+
+            return new TrackPage(tracks, offset + items.Count,
+                items.Count > 0 && !string.IsNullOrEmpty(page.Next), page.Total ?? offset + items.Count);
+        }
+
         public async Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken)
         {
             var client = await GetClientAsync(cancellationToken);
@@ -278,7 +324,8 @@ namespace KK.SFPlayer.Services
                 FormatDuration(track.DurationMs),
                 track.Album?.Images?.FirstOrDefault()?.Url,
                 position,
-                track.DurationMs);
+                track.DurationMs,
+                entry.AddedAt);
         }
 
         private static string FormatDuration(long milliseconds)
@@ -289,18 +336,52 @@ namespace KK.SFPlayer.Services
 
         public async Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken)
         {
-            var client = await GetClientAsync(cancellationToken);
-            await client.Player.ResumePlayback(new PlayerResumePlaybackRequest
+            if (_playback is null)
             {
-                ContextUri = playlistUri,
-                OffsetParam = position.HasValue ? new PlayerResumePlaybackRequest.Offset { Position = position.Value } : null,
-            }, cancellationToken);
+                throw new InvalidOperationException(StreamingConstants.Unsupported);
+            }
+
+            await GetClientAsync(cancellationToken);
+            var scopes = (_token?.Scope ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (!new[] { Scopes.Streaming, Scopes.UserReadEmail, Scopes.UserReadPrivate }.All(scopes.Contains))
+            {
+                throw new InvalidOperationException(StreamingConstants.Reauthorize);
+            }
+
+            var deviceId = await _playback.GetDeviceAsync(GetAccessTokenAsync, cancellationToken);
+            var client = await GetClientAsync(cancellationToken);
+            try
+            {
+                await client.Player.ResumePlayback(new PlayerResumePlaybackRequest
+                {
+                    DeviceId = deviceId,
+                    ContextUri = playlistUri,
+                    OffsetParam = position.HasValue ? new PlayerResumePlaybackRequest.Offset { Position = position.Value } : null,
+                }, cancellationToken);
+            }
+            catch (APIException exception) when (exception.Response?.StatusCode == HttpStatusCode.NotFound)
+            {
+                _playback.Reset();
+                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
+            }
         }
 
         public void Dispose()
         {
+            if (_playback is not null)
+            {
+                _playback.PlayingChanged -= OnPlayingChanged;
+            }
+
+            _playback?.Dispose();
             _httpClient?.Dispose();
             _tokenLock.Dispose();
+        }
+
+        private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken)
+        {
+            await GetClientAsync(cancellationToken);
+            return _token!.AccessToken;
         }
 
         private async Task<SpotifyClient> GetClientAsync(CancellationToken cancellationToken)
@@ -321,6 +402,11 @@ namespace KK.SFPlayer.Services
                     if (string.IsNullOrEmpty(refreshed.RefreshToken))
                     {
                         refreshed.RefreshToken = _token.RefreshToken;
+                    }
+
+                    if (string.IsNullOrEmpty(refreshed.Scope))
+                    {
+                        refreshed.Scope = _token.Scope;
                     }
 
                     _settings.SaveToken(_clientId, refreshed);

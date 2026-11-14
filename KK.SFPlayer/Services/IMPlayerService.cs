@@ -10,6 +10,12 @@ namespace KK.SFPlayer.Services
     {
         bool IsConnected { get; }
 
+        event EventHandler<bool>? PlayingChanged;
+
+        void TogglePause();
+
+        void SetVolume(double volume);
+
         Task<bool> RestoreAsync(string clientId, CancellationToken cancellationToken);
 
         Task ConnectAsync(string clientId, CancellationToken cancellationToken);
@@ -21,6 +27,8 @@ namespace KK.SFPlayer.Services
         Task<PlaylistPage> GetPlaylistPageAsync(int offset, CancellationToken cancellationToken);
 
         Task<IReadOnlyList<TrackInfo>> GetTracksAsync(string playlistId, CancellationToken cancellationToken);
+
+        Task<TrackPage> GetTrackPageAsync(string playlistId, int offset, CancellationToken cancellationToken);
 
         Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken);
 

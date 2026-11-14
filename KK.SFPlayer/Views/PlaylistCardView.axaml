@@ -7,21 +7,31 @@
              x:Class="KK.SFPlayer.Views.PlaylistCardView"
              x:DataType="vm:PlaylistCardViewModel"
              x:CompileBindings="True">
-    <Grid Height="144" RowDefinitions="*,2">
+    <Grid Height="144" RowDefinitions="*,2" Background="Transparent" PointerReleased="OnCardPointerReleased">
         <Grid Margin="0,12,8,12" ColumnDefinitions="96,12,*">
-            <controls:RemoteImage Width="96"
-                                  Height="96"
-                                  VerticalAlignment="Top"
-                                  Url="{Binding ImageUrl}"
-                                  Stretch="Uniform" />
+            <Grid x:Name="Cover" Classes="playlist-cover" Width="96" Height="96" VerticalAlignment="Top">
+                <controls:RemoteImage Width="96"
+                                      Height="96"
+                                      VerticalAlignment="Top"
+                                      Url="{Binding ImageUrl}"
+                                      Stretch="Uniform" />
+                <Button Classes="icon-button cover-play" Width="36" Height="36"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Command="{Binding PlayCommand}" CommandParameter="{Binding Playlist}"
+                        ToolTip.Tip="{x:Static constants:PlaylistConstants.Play}"
+                        AutomationProperties.Name="{x:Static constants:PlaylistConstants.Play}">
+                    <PathIcon Width="16" Height="16" Data="M5,2 L19,12 L5,22 Z"
+                              Foreground="{DynamicResource AppTextBrush}" />
+                </Button>
+            </Grid>
             <Grid Grid.Column="2" RowDefinitions="24,*">
                 <Grid ColumnDefinitions="*,8,Auto">
                     <Button Classes="playlist-title"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"
                             ToolTip.Tip="{Binding Playlist.Name}"
-                            Command="{Binding OpenSpotifyCommand}"
-                            CommandParameter="{Binding Playlist.Uri}">
+                            Command="{Binding OpenCommand}"
+                            CommandParameter="{Binding Playlist}">
                         <TextBlock FontSize="14"
                                    FontWeight="SemiBold"
                                    Text="{Binding Playlist.Name}"
@@ -39,11 +49,10 @@
                         <DataTemplate x:DataType="models:TrackInfo">
                             <Border Height="18" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource AppSurfaceRaisedBrush}">
                                 <Grid ColumnDefinitions="*,8,34">
-                                    <TextBlock VerticalAlignment="Center"
+                                    <controls:TrimmedTextBlock VerticalAlignment="Center"
                                                FontSize="11"
                                                Text="{Binding DisplayName}"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTip.Tip="{Binding DisplayName}" />
+                                               TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="2"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Center"

@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using KK.SFPlayer.Views;
 using KK.SFPlayer.Services;
 using KK.SFPlayer.ViewModels;
+using System;
 
 namespace KK.SFPlayer
 {
@@ -16,8 +17,10 @@ namespace KK.SFPlayer
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 var settings = new SettingsStore();
-                var player = new MPlayerService(settings);
+                var playback = new WebPlaybackEngine(() => desktop.MainWindow?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+                var player = new MPlayerService(settings, playback: playback);
                 var viewModel = new MainViewModel(player, settings, new StartupService());
+                playback.PlaybackError += (_, message) => viewModel.Status = message;
                 desktop.MainWindow = new MainWindow { DataContext = viewModel };
             }
 

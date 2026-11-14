@@ -25,6 +25,93 @@ namespace KK.SFPlayer.Tests
         private const string TrackJson = """{"type":"track","uri":"spotify:track:one","name":"First track","duration_ms":185000,"artists":[{"name":"Test artist"}],"album":{"images":[{"url":"https://example.com/cover.png"}]}}""";
 
         [Fact]
+        public async Task TrackPageLoadsOnlyFiftyAndPreservesAddedDateAndPlaybackPosition()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var items = string.Join(",", Enumerable.Range(0, 50).Select(index =>
+                index == 1 ? "{\"item\":null}" :
+                "{\"added_at\":\"2026-11-01T12:30:00Z\",\"item\":" + TrackJson + "}"));
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/playlists/demo/items" when request.Query.Contains("offset=0", StringComparison.Ordinal) =>
+                    Json("{\"items\":[" + items + "],\"total\":51,\"next\":\"https://api.spotify.com/next\"}"),
+                "/v1/playlists/demo/items" =>
+                    Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":51,\"next\":null}"),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+
+            var first = await context.Player.GetTrackPageAsync("demo", 0, CancellationToken.None);
+            Assert.Single(context.Handler.Requests);
+            Assert.Contains("limit=50", context.Handler.Requests[0].Query);
+            Assert.True(first.HasMore);
+            Assert.Equal(51, first.Total);
+            Assert.Equal(50, first.NextOffset);
+            Assert.Equal(49, first.Tracks.Count);
+            Assert.Equal(49, first.Tracks[^1].Position);
+            Assert.Equal(new DateTime(2026, 11, 1, 12, 30, 0, DateTimeKind.Utc), first.Tracks[0].AddedAt);
+
+            var second = await context.Player.GetTrackPageAsync("demo", first.NextOffset, CancellationToken.None);
+            Assert.Equal(2, context.Handler.Requests.Count);
+            Assert.Contains("offset=50", context.Handler.Requests[1].Query);
+            Assert.False(second.HasMore);
+            Assert.Equal(50, Assert.Single(second.Tracks).Position);
+            Assert.Null(second.Tracks[0].AddedAt);
+        }
+
+        [Fact]
+        public async Task FailedNextTrackPageKeepsLoadedTracksAndRetriesSameOffset()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var nextAttempts = 0;
+            var items = string.Join(",", Enumerable.Repeat(
+                "{\"added_at\":\"2026-11-01T12:30:00Z\",\"item\":" + TrackJson + "}", 50));
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/me/playlists" => Json("""{"items":[{"id":"demo","uri":"spotify:playlist:demo","name":"Demo"}],"next":null}"""),
+                "/v1/playlists/demo/items" when request.Query.Contains("offset=0", StringComparison.Ordinal) =>
+                    Json("{\"items\":[" + items + "],\"total\":51,\"next\":\"https://api.spotify.com/next\"}"),
+                "/v1/playlists/demo/items" when ++nextAttempts == 1 =>
+                    Json("""{"error":{"status":503,"message":"Unavailable"}}""", HttpStatusCode.ServiceUnavailable),
+                "/v1/playlists/demo/items" =>
+                    Json("{\"items\":[{\"added_at\":\"2026-11-10T12:30:00Z\",\"item\":" + TrackJson + "}],\"total\":51,\"next\":null}"),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
+
+            Assert.Equal(2, context.Handler.Requests.Count);
+            Assert.Equal(50, viewModel.Tracks.Count);
+            Assert.Equal("51 songs", viewModel.PlaylistSummary);
+            viewModel.SelectedSort = 4;
+            await viewModel.LoadMoreTracksCommand.ExecuteAsync(null);
+
+            Assert.Equal(50, viewModel.Tracks.Count);
+            Assert.True(viewModel.HasRetry);
+            Assert.False(viewModel.LoadMoreTracksCommand.CanExecute(null));
+            await viewModel.RetryCommand.ExecuteAsync(null);
+
+            Assert.Equal(51, viewModel.Tracks.Count);
+            Assert.Equal(51, viewModel.SortedTracks.Count);
+            Assert.Equal(50, viewModel.SortedTracks[0].Position);
+            Assert.Equal(2, nextAttempts);
+            Assert.All(context.Handler.Requests.TakeLast(2), request => Assert.Contains("offset=50", request.Query));
+            Assert.False(viewModel.HasMoreTracks);
+            Assert.Equal("51 songs · 2:37:15", viewModel.PlaylistSummary);
+        }
+
+        [Fact]
         public async Task LibraryLoadsTenAtATimeAndTrackPreviewsAreLoadedOnDemandAndCached()
         {
             if (!OperatingSystem.IsWindows())
@@ -494,6 +581,8 @@ namespace KK.SFPlayer.Tests
             await context.Player.PlayAsync("spotify:playlist:demo", tracks[1].Position, CancellationToken.None);
             var playRequest = context.Handler.Requests.FindLast(request => request.Method == HttpMethod.Put)!;
             using var body = JsonDocument.Parse(playRequest.Body);
+            Assert.Contains("device_id=local-device", playRequest.Query);
+            Assert.Equal("new-access", context.Playback.Token);
             Assert.Equal("spotify:playlist:demo", body.RootElement.GetProperty("context_uri").GetString());
             Assert.Equal(4, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
         }
@@ -522,6 +611,190 @@ namespace KK.SFPlayer.Tests
         }
 
         [Fact]
+        public async Task PlaylistSortPersistsIndependentlyAndCoverPlaysFirstSortedTrackAfterRestart()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var items = JsonSerializer.Serialize(new
+            {
+                items = new[] { "Zulu", "Alpha", "Beta" }.Select((name, index) => new
+                {
+                    added_at = $"2026-11-{index + 1:00}T12:00:00Z",
+                    item = new
+                    {
+                        type = "track",
+                        uri = $"spotify:track:{index}",
+                        name,
+                        duration_ms = 180000,
+                        artists = new[] { new { name = "Artist" } },
+                    },
+                }),
+                total = 3,
+                next = (string?)null,
+            });
+            HttpResponseMessage Respond(CapturedRequest request) => request.Path switch
+            {
+                "/v1/me/playlists" => Json("""{"items":[{"id":"one","uri":"spotify:playlist:one","name":"One"},{"id":"two","uri":"spotify:playlist:two","name":"Two"}],"next":null}"""),
+                "/v1/playlists/one/items" or "/v1/playlists/two/items" => Json(items),
+                "/v1/me/player/play" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                _ => throw new InvalidOperationException(request.Path),
+            };
+
+            using var context = new TestContext(Respond);
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
+            viewModel.SelectedSort = 1;
+            Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
+            Assert.Equal("Alpha", viewModel.PlaylistCards[0].Tracks[0].Name);
+            await viewModel.PlayPlaylistCommand.ExecuteAsync(null);
+            using (var body = JsonDocument.Parse(context.Handler.Requests.Last().Body))
+            {
+                Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            }
+
+            viewModel.BackCommand.Execute(null);
+            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[1]);
+            Assert.Equal(0, viewModel.SelectedSort);
+            viewModel.SelectedSort = 4;
+            Assert.Equal(4, context.Store.Load().PlaylistSorts["two"]);
+            Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
+            viewModel.BackCommand.Execute(null);
+
+            using var restartedContext = new TestContext(Respond);
+            restartedContext.SeedToken(false);
+            using var restarted = new MainViewModel(restartedContext.Player, context.Store, restartedContext.Startup);
+            await restarted.InitializeAsync();
+            await restarted.PlaylistCards[0].EnsureLoadedAsync();
+            Assert.Equal("Alpha", restarted.PlaylistCards[0].Tracks[0].Name);
+            Assert.Contains("limit=50", restartedContext.Handler.Requests.Last().Query);
+            await restarted.PlayCardCommand.ExecuteAsync(restarted.Playlists[0]);
+            using (var body = JsonDocument.Parse(restartedContext.Handler.Requests.Last().Body))
+            {
+                Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            }
+
+            await restarted.OpenPlaylistCommand.ExecuteAsync(restarted.Playlists[0]);
+            Assert.Equal(1, restarted.SelectedSort);
+            Assert.Equal("Alpha", restarted.SortedTracks[0].Name);
+            restarted.BackCommand.Execute(null);
+            await restarted.OpenPlaylistCommand.ExecuteAsync(restarted.Playlists[1]);
+            Assert.Equal(4, restarted.SelectedSort);
+            Assert.Equal("Beta", restarted.SortedTracks[0].Name);
+        }
+
+        [Fact]
+        public async Task PauseAndVolumeControlLocalPlayerEvenWhileLibraryIsBusy()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/me/playlists" => Json("""{"items":[{"id":"demo","uri":"spotify:playlist:demo","name":"Demo"}],"next":null}"""),
+                "/v1/playlists/demo/items" => Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}"),
+                "/v1/me/player/play" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            await viewModel.PlayCardCommand.ExecuteAsync(viewModel.Playlists[0]);
+            Assert.Equal(10, viewModel.Volume);
+            Assert.Equal(0.1, context.Playback.Volume);
+            viewModel.IsBusy = true;
+
+            Assert.True(viewModel.TogglePlaybackCommand.CanExecute(null));
+            viewModel.TogglePlaybackCommand.Execute(null);
+            Assert.False(context.Playback.IsPlaying);
+            Assert.False(viewModel.IsPlaying);
+            viewModel.Volume = 23;
+            Assert.Equal(0.23, context.Playback.Volume);
+            viewModel.Volume = 0;
+            Assert.Equal(0, context.Playback.Volume);
+            viewModel.TogglePlaybackCommand.Execute(null);
+            Assert.True(viewModel.IsPlaying);
+            viewModel.IsBusy = false;
+        }
+
+        [Fact]
+        public async Task PlaybackWaitsForLocalDeviceAndNeverUsesDefaultDevice()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+            context.SeedToken(false);
+            context.Playback.Ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+
+            var play = context.Player.PlayAsync("spotify:playlist:demo", 7, CancellationToken.None);
+            Assert.False(play.IsCompleted);
+            Assert.Empty(context.Handler.Requests);
+            context.Playback.Ready.SetResult("embedded-device");
+            await play;
+
+            var request = Assert.Single(context.Handler.Requests);
+            Assert.Contains("device_id=embedded-device", request.Query);
+            using var body = JsonDocument.Parse(request.Body);
+            Assert.Equal(7, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            context.Player.Disconnect();
+            Assert.Equal(1, context.Playback.ResetCount);
+        }
+
+        [Fact]
+        public async Task OldAuthorizationRequiresNewStreamingConsentBeforePlayback()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected network request."));
+            context.SeedToken(false);
+            var token = context.Store.LoadToken(ClientId)!;
+            token.Scope = "playlist-read-private user-modify-playback-state";
+            context.Store.SaveToken(ClientId, token);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                context.Player.PlayAsync("spotify:playlist:demo", null, CancellationToken.None));
+
+            Assert.Equal(StreamingConstants.Reauthorize, error.Message);
+            Assert.Null(context.Playback.Token);
+            Assert.Empty(context.Handler.Requests);
+        }
+
+        [Fact]
+        public async Task LocalDeviceFailureDoesNotStartPlaybackOnAnotherSpotifyDevice()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected network request."));
+            context.SeedToken(false);
+            context.Playback.Ready = new TaskCompletionSource<string>();
+            context.Playback.Ready.SetException(new InvalidOperationException(StreamingConstants.PremiumRequired));
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                context.Player.PlayAsync("spotify:playlist:demo", null, CancellationToken.None));
+
+            Assert.Equal(StreamingConstants.PremiumRequired, error.Message);
+            Assert.Empty(context.Handler.Requests);
+        }
+
+        [Fact]
         public async Task MissingPlaybackDeviceShowsActionableMessage()
         {
             if (!OperatingSystem.IsWindows())
@@ -545,6 +818,7 @@ namespace KK.SFPlayer.Tests
             await viewModel.PlayPlaylistCommand.ExecuteAsync(null);
 
             Assert.Equal(PlaybackConstants.NoDevice, viewModel.Status);
+            Assert.Equal(1, context.Playback.ResetCount);
             Assert.True(viewModel.IsConnected);
             Assert.False(viewModel.IsBusy);
         }
@@ -562,7 +836,7 @@ namespace KK.SFPlayer.Tests
                 Store = new SettingsStore(Directory);
                 Handler = new FakeSpotifyHandler(respond);
                 Player = new MPlayerService(Store, SpotifyClientConfig.CreateDefault()
-                    .WithHTTPClient(new NetHttpClient(new HttpClient(Handler))));
+                    .WithHTTPClient(new NetHttpClient(new HttpClient(Handler))), Playback);
             }
 
             public string Directory { get; }
@@ -575,6 +849,8 @@ namespace KK.SFPlayer.Tests
 
             public MPlayerService Player { get; }
 
+            public FakePlaybackEngine Playback { get; } = new();
+
             public void SeedToken(bool expired = true)
             {
                 Store.Save(new AppSettings { ClientId = ClientId, AlwaysOnTop = true });
@@ -584,6 +860,7 @@ namespace KK.SFPlayer.Tests
                     RefreshToken = "old-refresh",
                     ExpiresIn = 3600,
                     TokenType = "Bearer",
+                    Scope = "streaming user-read-email user-read-private user-modify-playback-state",
                     CreatedAt = expired ? DateTime.UtcNow.AddHours(-2) : DateTime.UtcNow,
                 });
             }
@@ -599,6 +876,39 @@ namespace KK.SFPlayer.Tests
                     System.IO.Directory.Delete(Directory, true);
                 }
             }
+        }
+
+        private sealed class FakePlaybackEngine : ILocalPlaybackEngine
+        {
+            public event EventHandler<bool>? PlayingChanged;
+
+            public bool IsPlaying { get; private set; } = true;
+
+            public double Volume { get; private set; } = StreamingConstants.DefaultVolume;
+
+            public void TogglePause()
+            {
+                IsPlaying = !IsPlaying;
+                PlayingChanged?.Invoke(this, IsPlaying);
+            }
+
+            public void SetVolume(double volume) => Volume = volume;
+
+            public string? Token { get; private set; }
+
+            public int ResetCount { get; private set; }
+
+            public TaskCompletionSource<string>? Ready { get; set; }
+
+            public async Task<string> GetDeviceAsync(Func<CancellationToken, Task<string>> getAccessToken, CancellationToken cancellationToken)
+            {
+                Token = await getAccessToken(cancellationToken);
+                return Ready is null ? "local-device" : await Ready.Task.WaitAsync(cancellationToken);
+            }
+
+            public void Reset() => ResetCount++;
+
+            public void Dispose() { }
         }
 
         private sealed class FakeStartupService : IStartupService

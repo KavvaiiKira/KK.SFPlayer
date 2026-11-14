@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:constants="using:KK.SFPlayer.Constants"
+             xmlns:vm="using:KK.SFPlayer.ViewModels"
+             xmlns:models="using:KK.SFPlayer.Models"
+             xmlns:controls="using:KK.SFPlayer.Controls"
+             x:Class="KK.SFPlayer.Views.PlaylistDetailView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="True">
+    <Grid RowDefinitions="30,8,80,10,32,8,*">
+        <Button Classes="icon-button" Command="{Binding BackCommand}"
+                ToolTip.Tip="{x:Static constants:PlaylistConstants.Back}"
+                AutomationProperties.Name="{x:Static constants:PlaylistConstants.Back}">
+            <PathIcon Width="16" Height="16" Data="M12,2 L14,4 L7,11 L22,11 L22,13 L7,13 L14,20 L12,22 L2,12 Z"
+                      Foreground="{DynamicResource AppTextBrush}" />
+        </Button>
+        <Grid Grid.Row="2" ColumnDefinitions="80,12,*">
+            <Grid Classes="playlist-cover">
+                <controls:RemoteImage Width="80" Height="80" Url="{Binding SelectedPlaylist.ImageUrl}" />
+                <Button Classes="icon-button cover-play" Width="36" Height="36"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Command="{Binding PlayPlaylistCommand}"
+                        ToolTip.Tip="{x:Static constants:PlaylistConstants.Play}"
+                        AutomationProperties.Name="{x:Static constants:PlaylistConstants.Play}">
+                    <PathIcon Width="16" Height="16" Data="M5,2 L19,12 L5,22 Z"
+                              Foreground="{DynamicResource AppTextBrush}" />
+                </Button>
+            </Grid>
+            <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold"
+                       TextWrapping="Wrap" MaxHeight="80" TextTrimming="CharacterEllipsis"
+                       Text="{Binding SelectedPlaylist.Name}" />
+        </Grid>
+        <Grid Grid.Row="4" ColumnDefinitions="*,8,132">
+            <TextBlock VerticalAlignment="Center" FontSize="11" Text="{Binding PlaylistSummary}"
+                       Foreground="{DynamicResource AppTextMutedBrush}" />
+            <ComboBox Grid.Column="2" Classes="playlist-sort" HorizontalAlignment="Stretch"
+                      FontSize="11" MinHeight="28" Padding="8,0"
+                      VerticalContentAlignment="Center"
+                      ItemsSource="{Binding SortOptions}" SelectedIndex="{Binding SelectedSort}"
+                      IsEnabled="{Binding !IsBusy}"
+                      ToolTip.Tip="{x:Static constants:PlaylistConstants.Sort}"
+                      AutomationProperties.Name="{x:Static constants:PlaylistConstants.Sort}" />
+        </Grid>
+        <ListBox x:Name="TracksList" Grid.Row="6" Classes="playlist-list"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ItemsSource="{Binding SortedTracks}">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <VirtualizingStackPanel CacheLength="0" />
+                </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:TrackInfo">
+                    <Border Height="32" Margin="0,0,8,0" BorderThickness="0,0,0,1"
+                            BorderBrush="{DynamicResource AppSurfaceRaisedBrush}">
+                        <Grid ColumnDefinitions="*,12,40">
+                            <controls:TrimmedTextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.78"
+                                                       Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       FontSize="11" Foreground="{DynamicResource AppTextMutedBrush}"
+                                       Text="{Binding Duration}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>

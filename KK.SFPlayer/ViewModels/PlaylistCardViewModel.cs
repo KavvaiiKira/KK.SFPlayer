@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -20,6 +21,8 @@ namespace KK.SFPlayer.ViewModels
         private bool _isVisible;
         private bool _isLoaded;
         private bool _disposed;
+        private int _sort;
+        private readonly Dictionary<int, TrackInfo> _knownTracks = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
@@ -52,11 +55,51 @@ namespace KK.SFPlayer.ViewModels
 
         public ICommand OpenSpotifyCommand { get; }
 
+        public ICommand? OpenCommand { get; init; }
+
+        public ICommand? PlayCommand { get; init; }
+
         public bool HasError => !string.IsNullOrEmpty(Error);
 
         public bool CanRetry => !IsLoading && !_disposed;
 
         internal Task LoadingTask { get; private set; } = Task.CompletedTask;
+
+        internal TrackInfo? FirstTrack => _knownTracks.Values.Order(TrackSorting.For(_sort)).FirstOrDefault();
+
+        internal void SetSort(int sort)
+        {
+            _sort = sort;
+            UpdatePreview();
+        }
+
+        internal void UseTracks(IEnumerable<TrackInfo> tracks, string? totalDuration = null, bool replace = false)
+        {
+            if (replace)
+            {
+                _knownTracks.Clear();
+            }
+
+            foreach (var track in tracks)
+            {
+                _knownTracks[track.Position] = track;
+            }
+
+            if (totalDuration is not null)
+            {
+                TotalDuration = totalDuration;
+            }
+
+            Error = string.Empty;
+            _isLoaded = true;
+            UpdatePreview();
+        }
+
+        private void UpdatePreview()
+        {
+            Tracks = _knownTracks.Values.Order(TrackSorting.For(_sort)).Take(PlaylistConstants.PreviewTrackLimit).ToArray();
+            IsEmpty = _isLoaded && Tracks.Count == 0;
+        }
 
         internal void SetVisible(bool visible)
         {
@@ -103,12 +146,18 @@ namespace KK.SFPlayer.ViewModels
                 await PreviewSlots.WaitAsync(request.Token);
                 try
                 {
-                    var preview = await _player.GetTrackPreviewAsync(Playlist.Id, request.Token);
-                    request.Token.ThrowIfCancellationRequested();
-                    Tracks = preview.Tracks;
-                    TotalDuration = preview.TotalDuration;
-                    IsEmpty = Tracks.Count == 0;
-                    _isLoaded = true;
+                    if (_sort == 0)
+                    {
+                        var preview = await _player.GetTrackPreviewAsync(Playlist.Id, request.Token);
+                        request.Token.ThrowIfCancellationRequested();
+                        UseTracks(preview.Tracks, preview.TotalDuration);
+                    }
+                    else
+                    {
+                        var page = await _player.GetTrackPageAsync(Playlist.Id, 0, request.Token);
+                        request.Token.ThrowIfCancellationRequested();
+                        UseTracks(page.Tracks);
+                    }
                 }
                 finally
                 {

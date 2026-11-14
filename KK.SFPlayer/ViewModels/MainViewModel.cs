@@ -26,12 +26,70 @@ namespace KK.SFPlayer.ViewModels
         private bool _disposed;
         private bool _disposePlayerScheduled;
         private int _nextPlaylistOffset;
+        private int _nextTrackOffset;
+        private int _totalTrackCount;
         private readonly HashSet<string> _playlistIds = [];
         private readonly List<Task> _retiredPreviewLoads = [];
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        private bool _isPlaying;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
+        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        private bool _hasPlayback;
+
+        [ObservableProperty]
+        private double _volume = StreamingConstants.DefaultVolume * 100;
+
+        public string PlaybackTooltip => IsPlaying ? StreamingConstants.Pause :
+            HasPlayback ? StreamingConstants.Resume : StreamingConstants.Play;
+
+        public bool CanTogglePlayback => IsConnected && (HasPlayback || (CanEdit && Playlists.Count > 0));
+
+        partial void OnVolumeChanged(double value)
+        {
+            try
+            {
+                _player.SetVolume(value / 100);
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+            }
+        }
+
+        private void OnPlayingChanged(object? sender, bool playing)
+        {
+            IsPlaying = playing;
+            HasPlayback = true;
+        }
+
+        [RelayCommand(CanExecute = nameof(CanTogglePlayback))]
+        private async Task TogglePlaybackAsync()
+        {
+            if (!HasPlayback)
+            {
+                await PlayCardAsync(Playlists.FirstOrDefault());
+                return;
+            }
+
+            try
+            {
+                _player.TogglePause();
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+            }
+        }
+
+        [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
         [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
@@ -41,11 +99,14 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
         [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
         [NotifyPropertyChangedFor(nameof(NeedsLogin))]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
         private bool _isBusy;
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
         [NotifyPropertyChangedFor(nameof(AccountTooltip))]
@@ -60,11 +121,14 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
         [NotifyCanExecuteChangedFor(nameof(BackCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
         [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
         private bool _isLogoutConfirmationOpen;
 
         [ObservableProperty]
@@ -73,10 +137,13 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
         [NotifyCanExecuteChangedFor(nameof(BackCommand))]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
         [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
         private bool _isSettingsOpen;
 
         [ObservableProperty]
@@ -85,6 +152,7 @@ namespace KK.SFPlayer.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
         private bool _hasRetry;
 
         [ObservableProperty]
@@ -99,12 +167,15 @@ namespace KK.SFPlayer.ViewModels
         [NotifyPropertyChangedFor(nameof(HasSelectedPlaylist))]
         [NotifyPropertyChangedFor(nameof(ShowPlaylists))]
         [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
         [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
         private PlaylistInfo? _selectedPlaylist;
 
         internal MainViewModel(IMPlayerService player, SettingsStore store, IStartupService? startup = null)
         {
             _player = player;
+            _player.PlayingChanged += OnPlayingChanged;
             _store = store;
             _startup = startup ?? new StartupService();
             Settings = new SettingsViewModel(SaveSettings, CloseSettings);
@@ -116,6 +187,63 @@ namespace KK.SFPlayer.ViewModels
 
         public ObservableCollection<TrackInfo> Tracks { get; } = [];
 
+        public ObservableCollection<TrackInfo> SortedTracks { get; } = [];
+
+        public IReadOnlyList<string> SortOptions { get; } =
+            [PlaylistConstants.OriginalOrder, PlaylistConstants.TitleOrder, PlaylistConstants.ArtistOrder,
+                PlaylistConstants.DurationOrder, PlaylistConstants.NewestOrder, PlaylistConstants.OldestOrder];
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        private bool _hasMoreTracks;
+
+        [ObservableProperty]
+        private int _selectedSort;
+
+        [ObservableProperty]
+        private string _playlistSummary = string.Empty;
+
+        partial void OnSelectedSortChanged(int value)
+        {
+            SortTracks();
+            if (SelectedPlaylist is not { } playlist)
+            {
+                return;
+            }
+
+            PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlist.Id)?.SetSort(value);
+            if (GetPlaylistSort(playlist.Id) == value)
+            {
+                return;
+            }
+
+            var sorts = new Dictionary<string, int>(_settings.PlaylistSorts ?? []) { [playlist.Id] = value };
+            var next = _settings with { PlaylistSorts = sorts };
+            try
+            {
+                _store.Save(next);
+                _settings = next;
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+            }
+        }
+
+        private int GetPlaylistSort(string playlistId) =>
+            _settings.PlaylistSorts?.TryGetValue(playlistId, out var sort) == true && sort >= 0 && sort < SortOptions.Count ? sort : 0;
+
+        private void SortTracks()
+        {
+            SortedTracks.Clear();
+            foreach (var track in Tracks.Order(TrackSorting.For(SelectedSort)))
+            {
+                SortedTracks.Add(track);
+            }
+        }
+
+        private int CompareTracks(TrackInfo left, TrackInfo right) => TrackSorting.Compare(SelectedSort, left, right);
+
         public SettingsViewModel Settings { get; }
 
         public bool HasStatus => !string.IsNullOrEmpty(Status);
@@ -126,7 +254,7 @@ namespace KK.SFPlayer.ViewModels
 
         public bool HasSelectedPlaylist => SelectedPlaylist is not null;
 
-        public bool ShowPlaylists => IsConnected;
+        public bool ShowPlaylists => IsConnected && !HasSelectedPlaylist;
 
         public bool CanUsePlayer => IsConnected && CanEdit;
 
@@ -139,6 +267,8 @@ namespace KK.SFPlayer.ViewModels
         public bool CanRetryRequest => HasRetry && CanEdit;
 
         public bool CanLoadMorePlaylists => HasMorePlaylists && CanUsePlayer;
+
+        public bool CanLoadMoreTracks => HasMoreTracks && CanPlay && !HasRetry;
 
         public string TopmostTooltip => AlwaysOnTop ? WindowConstants.TopmostOn : WindowConstants.TopmostOff;
 
@@ -304,7 +434,8 @@ namespace KK.SFPlayer.ViewModels
         }
 
         [RelayCommand(CanExecute = nameof(CanUsePlayer))]
-        private Task RefreshAsync() => RunAsync(LoadPlaylistsAsync, true);
+        private Task RefreshAsync() => SelectedPlaylist is { } playlist ?
+            OpenPlaylistAsync(playlist) : RunAsync(LoadPlaylistsAsync, true);
 
         [RelayCommand(CanExecute = nameof(CanLoadMorePlaylists))]
         private Task LoadMorePlaylistsAsync() => RunAsync(async cancellationToken =>
@@ -358,18 +489,63 @@ namespace KK.SFPlayer.ViewModels
 
             SelectedPlaylist = playlist;
             Tracks.Clear();
-            await RunAsync(async cancellationToken =>
+            SortedTracks.Clear();
+            PlaylistSummary = string.Empty;
+            SelectedSort = GetPlaylistSort(playlist.Id);
+            HasMoreTracks = false;
+            _nextTrackOffset = 0;
+            _totalTrackCount = 0;
+            await RunAsync(cancellationToken => LoadTrackPageAsync(playlist.Id, cancellationToken), true);
+        }
+
+        [RelayCommand(CanExecute = nameof(CanLoadMoreTracks))]
+        private Task LoadMoreTracksAsync() => SelectedPlaylist is { } playlist ?
+            RunAsync(cancellationToken => LoadTrackPageAsync(playlist.Id, cancellationToken), true) : Task.CompletedTask;
+
+        private async Task LoadTrackPageAsync(string playlistId, CancellationToken cancellationToken)
+        {
+            var page = await _player.GetTrackPageAsync(playlistId, _nextTrackOffset, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var track in page.Tracks)
             {
-                foreach (var track in await _player.GetTracksAsync(playlist.Id, cancellationToken))
+                Tracks.Add(track);
+                var low = 0;
+                var high = SortedTracks.Count;
+                while (low < high)
                 {
-                    Tracks.Add(track);
+                    var middle = low + (high - low) / 2;
+                    if (CompareTracks(SortedTracks[middle], track) <= 0)
+                    {
+                        low = middle + 1;
+                    }
+                    else
+                    {
+                        high = middle;
+                    }
                 }
 
-                if (Tracks.Count == 0)
-                {
-                    Status = PlaybackConstants.NoTracks;
-                }
-            }, true);
+                SortedTracks.Insert(low, track);
+            }
+
+            _nextTrackOffset = page.NextOffset;
+            _totalTrackCount = page.Total;
+            HasMoreTracks = page.HasMore;
+            PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlistId)?.UseTracks(Tracks, replace: true);
+            PlaylistSummary = string.Format(PlaylistConstants.CountFormat, _totalTrackCount);
+            if (!HasMoreTracks && Tracks.Count == _totalTrackCount)
+            {
+                var duration = TimeSpan.FromMilliseconds(Tracks.Sum(track => (long)track.DurationMs));
+                var time = duration.TotalHours >= 1 ?
+                    $"{(long)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}" :
+                    $"{duration.Minutes}:{duration.Seconds:00}";
+                PlaylistSummary = string.Format(PlaylistConstants.SummaryFormat, _totalTrackCount, time);
+                PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlistId)?.UseTracks(Tracks, time);
+            }
+
+            if (Tracks.Count == 0 && !HasMoreTracks)
+            {
+                Status = PlaybackConstants.NoTracks;
+            }
         }
 
         [RelayCommand(CanExecute = nameof(CanEdit))]
@@ -379,14 +555,47 @@ namespace KK.SFPlayer.ViewModels
             HasRetry = false;
             SelectedPlaylist = null;
             Tracks.Clear();
+            SortedTracks.Clear();
+            PlaylistSummary = string.Empty;
+            HasMoreTracks = false;
+            _nextTrackOffset = 0;
+            _totalTrackCount = 0;
             Status = string.Empty;
         }
 
         [RelayCommand(CanExecute = nameof(CanPlay))]
-        private Task PlayPlaylistAsync() => PlayAsync(null);
+        private Task PlayPlaylistAsync() => SortedTracks.FirstOrDefault() is { } first ? PlayAsync(first.Position) : Task.CompletedTask;
 
         [RelayCommand(CanExecute = nameof(CanPlay))]
         private Task PlayTrackAsync(TrackInfo? track) => PlayAsync(track?.Position);
+
+        [RelayCommand(CanExecute = nameof(CanUsePlayer))]
+        private Task PlayCardAsync(PlaylistInfo? playlist) => playlist is null ? Task.CompletedTask :
+            RunAsync(async cancellationToken =>
+            {
+                var card = PlaylistCards.FirstOrDefault(item => item.Playlist.Id == playlist.Id);
+                if (card is null)
+                {
+                    return;
+                }
+
+                await card.EnsureLoadedAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (card.HasError)
+                {
+                    throw new InvalidOperationException(card.Error);
+                }
+
+                if (card.FirstTrack is not { } first)
+                {
+                    throw new InvalidOperationException(PlaybackConstants.NoTracks);
+                }
+
+                await _player.PlayAsync(playlist.Uri, first.Position, cancellationToken);
+                HasPlayback = true;
+                IsPlaying = true;
+                Status = PlaybackConstants.Playing;
+            });
 
         public void Dispose()
         {
@@ -396,6 +605,7 @@ namespace KK.SFPlayer.ViewModels
             }
 
             _disposed = true;
+            _player.PlayingChanged -= OnPlayingChanged;
             _lifetime.Cancel();
             _operation?.Cancel();
             foreach (var card in PlaylistCards)
@@ -411,7 +621,16 @@ namespace KK.SFPlayer.ViewModels
             _lifetime.Dispose();
         }
 
-        partial void OnIsConnectedChanged(bool value) => OnPropertyChanged(nameof(ShowPlaylists));
+        partial void OnIsConnectedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ShowPlaylists));
+            TogglePlaybackCommand.NotifyCanExecuteChanged();
+            if (!value)
+            {
+                HasPlayback = false;
+                IsPlaying = false;
+            }
+        }
 
         private async Task PlayAsync(int? position)
         {
@@ -424,6 +643,8 @@ namespace KK.SFPlayer.ViewModels
             await RunAsync(async cancellationToken =>
             {
                 await _player.PlayAsync(playlist.Uri, position, cancellationToken);
+                HasPlayback = true;
+                IsPlaying = true;
                 Status = PlaybackConstants.Playing;
             });
         }
@@ -445,12 +666,19 @@ namespace KK.SFPlayer.ViewModels
                 if (_playlistIds.Add(playlist.Id))
                 {
                     Playlists.Add(playlist);
-                    PlaylistCards.Add(new PlaylistCardViewModel(playlist, _player, OpenSpotifyCommand, _lifetime.Token));
+                    var card = new PlaylistCardViewModel(playlist, _player, OpenSpotifyCommand, _lifetime.Token)
+                    {
+                        OpenCommand = OpenPlaylistCommand,
+                        PlayCommand = PlayCardCommand,
+                    };
+                    card.SetSort(GetPlaylistSort(playlist.Id));
+                    PlaylistCards.Add(card);
                 }
             }
 
             _nextPlaylistOffset = page.NextOffset;
             HasMorePlaylists = page.HasMore;
+            TogglePlaybackCommand.NotifyCanExecuteChanged();
         }
 
         private void ClearLibrary()
@@ -467,6 +695,7 @@ namespace KK.SFPlayer.ViewModels
             _playlistIds.Clear();
             HasMorePlaylists = false;
             _nextPlaylistOffset = 0;
+            TogglePlaybackCommand.NotifyCanExecuteChanged();
         }
 
         private void BeginDisposePlayer()

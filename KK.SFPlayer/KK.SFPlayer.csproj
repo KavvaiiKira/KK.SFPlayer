@@ -12,6 +12,7 @@
     <AvaloniaResource Include="Assets\Brand\kk-sfplayer.ico" />
     <AvaloniaResource Include="Assets\Brand\kk-brand.png" />
     <None Update="Assets\Fonts\Exo2-OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Assets\Playback\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -19,7 +20,13 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" PrivateAssets="build;buildTransitive" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
   </ItemGroup>
+  <Target Name="UseWebView2CoreOnly" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf' Or '%(Reference.Filename)' == 'Microsoft.Web.WebView2.WinForms'" />
+    </ItemGroup>
+  </Target>
 </Project>

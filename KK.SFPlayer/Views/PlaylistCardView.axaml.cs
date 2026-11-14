@@ -4,6 +4,7 @@ using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
 using System;
 using System.Linq;
+using Avalonia.Input;
 using KK.SFPlayer.ViewModels;
 
 namespace KK.SFPlayer.Views
@@ -64,9 +65,29 @@ namespace KK.SFPlayer.Views
 
         private void OnLayoutUpdated(object? sender, EventArgs e) => UpdateVisibility();
 
+        private void OnCardPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            if (e.InitialPressMouseButton != MouseButton.Left || e.Source is not Visual source)
+            {
+                return;
+            }
+
+            var ancestors = source.GetVisualAncestors().Prepend(source);
+            if (ancestors.Any(visual => visual is Button || ReferenceEquals(visual, Cover)))
+            {
+                return;
+            }
+
+            if (_model?.OpenCommand?.CanExecute(_model.Playlist) == true)
+            {
+                _model.OpenCommand.Execute(_model.Playlist);
+                e.Handled = true;
+            }
+        }
+
         private void UpdateVisibility()
         {
-            if (_viewport is null || !this.IsAttachedToVisualTree())
+            if (_viewport is null || !this.IsAttachedToVisualTree() || !IsEffectivelyVisible)
             {
                 _model?.SetVisible(false);
                 return;
