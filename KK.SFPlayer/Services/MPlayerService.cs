@@ -200,24 +200,13 @@ namespace KK.SFPlayer.Services
                 var items = page.Items ?? [];
                 for (var index = 0; index < items.Count; index++)
                 {
-                    var entry = items[index];
-                    if (entry is null || entry.IsLocal ||
-                        (entry.Item ?? entry.Track) is not FullTrack track ||
-                        string.IsNullOrEmpty(track.Uri))
+                    var track = MapTrack(items[index], offset + index);
+                    if (track is null)
                     {
                         continue;
                     }
 
-                    var duration = TimeSpan.FromMilliseconds(track.DurationMs);
-                    result.Add(new TrackInfo(
-                        track.Uri,
-                        track.Name ?? PlaybackConstants.UnnamedTrack,
-                        track.Artists is { Count: > 0 } ?
-                            string.Join(", ", track.Artists.Select(artist => artist.Name)) :
-                            PlaybackConstants.UnknownArtist,
-                        string.Format(CultureInfo.InvariantCulture, "{0}:{1:00}", (int)duration.TotalMinutes, duration.Seconds),
-                        track.Album?.Images?.FirstOrDefault()?.Url,
-                        offset + index));
+                    result.Add(track);
                 }
 
                 if (string.IsNullOrEmpty(page.Next) || items.Count == 0)
@@ -227,6 +216,75 @@ namespace KK.SFPlayer.Services
 
                 offset += items.Count;
             }
+        }
+
+        public async Task<PlaylistPage> GetPlaylistPageAsync(int offset, CancellationToken cancellationToken)
+        {
+            var client = await GetClientAsync(cancellationToken);
+            var page = await client.Playlists.CurrentUsers(
+                new PlaylistCurrentUsersRequest { Limit = PlaylistConstants.PageSize, Offset = offset },
+                cancellationToken);
+            var items = page.Items ?? [];
+            var playlists = items
+                .Where(item => item is not null && !string.IsNullOrEmpty(item.Id))
+                .Select(item => new PlaylistInfo(
+                    item.Id!,
+                    item.Uri ?? $"spotify:playlist:{item.Id}",
+                    item.Name ?? PlaybackConstants.UnnamedPlaylist,
+                    item.Owner?.DisplayName ?? string.Empty,
+                    item.Images?.FirstOrDefault()?.Url))
+                .ToArray();
+            return new PlaylistPage(playlists, offset + items.Count, items.Count > 0 && !string.IsNullOrEmpty(page.Next));
+        }
+
+        public async Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken)
+        {
+            var client = await GetClientAsync(cancellationToken);
+            var page = await client.Playlists.GetPlaylistItems(
+                playlistId,
+                new PlaylistGetItemsRequest { Limit = PlaylistConstants.PreviewTrackLimit, Offset = 0 },
+                cancellationToken);
+            var items = page.Items ?? [];
+            var tracks = new List<TrackInfo>();
+            for (var index = 0; index < Math.Min(items.Count, PlaylistConstants.PreviewTrackLimit); index++)
+            {
+                var track = MapTrack(items[index], index);
+                if (track is not null)
+                {
+                    tracks.Add(track);
+                }
+            }
+
+            var isComplete = string.IsNullOrEmpty(page.Next) && page.Total == items.Count && tracks.Count == items.Count;
+            var totalDuration = isComplete ? FormatDuration(tracks.Sum(track => (long)track.DurationMs)) : string.Empty;
+            return new PlaylistPreview(tracks, totalDuration);
+        }
+
+        private static TrackInfo? MapTrack(PlaylistTrack<IPlayableItem>? entry, int position)
+        {
+            if (entry is null || entry.IsLocal ||
+                (entry.Item ?? entry.Track) is not FullTrack track ||
+                string.IsNullOrEmpty(track.Uri))
+            {
+                return null;
+            }
+
+            return new TrackInfo(
+                track.Uri,
+                track.Name ?? PlaybackConstants.UnnamedTrack,
+                track.Artists is { Count: > 0 } ?
+                    string.Join(", ", track.Artists.Select(artist => artist.Name)) :
+                    PlaybackConstants.UnknownArtist,
+                FormatDuration(track.DurationMs),
+                track.Album?.Images?.FirstOrDefault()?.Url,
+                position,
+                track.DurationMs);
+        }
+
+        private static string FormatDuration(long milliseconds)
+        {
+            var duration = TimeSpan.FromMilliseconds(milliseconds);
+            return string.Format(CultureInfo.InvariantCulture, "{0}:{1:00}", (int)duration.TotalMinutes, duration.Seconds);
         }
 
         public async Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken)

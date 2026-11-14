@@ -18,7 +18,11 @@ namespace KK.SFPlayer.Services
 
         Task<IReadOnlyList<PlaylistInfo>> GetPlaylistsAsync(CancellationToken cancellationToken);
 
+        Task<PlaylistPage> GetPlaylistPageAsync(int offset, CancellationToken cancellationToken);
+
         Task<IReadOnlyList<TrackInfo>> GetTracksAsync(string playlistId, CancellationToken cancellationToken);
+
+        Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken);
 
         Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken);
     }

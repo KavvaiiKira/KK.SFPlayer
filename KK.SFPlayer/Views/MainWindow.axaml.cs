@@ -12,6 +12,7 @@ namespace KK.SFPlayer.Views
         public MainWindow()
         {
             InitializeComponent();
+            PlaylistsList.AddHandler(ScrollViewer.ScrollChangedEvent, OnPlaylistsScrolled);
             Opened += async (_, _) =>
             {
                 if (DataContext is MainViewModel viewModel)
@@ -28,6 +29,16 @@ namespace KK.SFPlayer.Views
                     viewModel.Dispose();
                 }
             };
+        }
+
+        private void OnPlaylistsScrolled(object? sender, ScrollChangedEventArgs e)
+        {
+            if (e.OffsetDelta.Y > 0 && e.Source is ScrollViewer scroll &&
+                scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 100 &&
+                DataContext is MainViewModel viewModel && viewModel.LoadMorePlaylistsCommand.CanExecute(null))
+            {
+                viewModel.LoadMorePlaylistsCommand.Execute(null);
+            }
         }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

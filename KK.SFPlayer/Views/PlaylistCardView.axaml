@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:constants="using:KK.SFPlayer.Constants"
+             xmlns:vm="using:KK.SFPlayer.ViewModels"
+             xmlns:models="using:KK.SFPlayer.Models"
+             xmlns:controls="using:KK.SFPlayer.Controls"
+             x:Class="KK.SFPlayer.Views.PlaylistCardView"
+             x:DataType="vm:PlaylistCardViewModel"
+             x:CompileBindings="True">
+    <Grid Height="144" RowDefinitions="*,2">
+        <Grid Margin="0,12,8,12" ColumnDefinitions="96,12,*">
+            <controls:RemoteImage Width="96"
+                                  Height="96"
+                                  VerticalAlignment="Top"
+                                  Url="{Binding ImageUrl}"
+                                  Stretch="Uniform" />
+            <Grid Grid.Column="2" RowDefinitions="24,*">
+                <Grid ColumnDefinitions="*,8,Auto">
+                    <Button Classes="playlist-title"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            ToolTip.Tip="{Binding Playlist.Name}"
+                            Command="{Binding OpenSpotifyCommand}"
+                            CommandParameter="{Binding Playlist.Uri}">
+                        <TextBlock FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding Playlist.Name}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Button>
+                    <TextBlock Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppTextMutedBrush}"
+                               FontSize="11"
+                               ToolTip.Tip="{x:Static constants:PlaylistConstants.TotalDuration}"
+                               Text="{Binding TotalDuration}" />
+                </Grid>
+                <ItemsControl Grid.Row="1" Opacity="0.78" ItemsSource="{Binding Tracks}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:TrackInfo">
+                            <Border Height="18" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource AppSurfaceRaisedBrush}">
+                                <Grid ColumnDefinitions="*,8,34">
+                                    <TextBlock VerticalAlignment="Center"
+                                               FontSize="11"
+                                               Text="{Binding DisplayName}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding DisplayName}" />
+                                    <TextBlock Grid.Column="2"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource AppTextMutedBrush}"
+                                               FontSize="11"
+                                               Text="{Binding Duration}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Grid.Row="1"
+                           Margin="0,8,0,0"
+                           VerticalAlignment="Top"
+                           Foreground="{DynamicResource AppTextMutedBrush}"
+                           FontSize="12"
+                           Text="{x:Static constants:PlaylistConstants.Loading}"
+                           IsVisible="{Binding IsLoading}" />
+                <TextBlock Grid.Row="1"
+                           Margin="0,8,0,0"
+                           VerticalAlignment="Top"
+                           Foreground="{DynamicResource AppTextMutedBrush}"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Text="{x:Static constants:PlaybackConstants.NoTracks}"
+                           IsVisible="{Binding IsEmpty}" />
+                <StackPanel Grid.Row="1" Margin="0,6,0,0" Spacing="6" IsVisible="{Binding HasError}">
+                    <TextBlock MaxHeight="54"
+                               FontSize="11"
+                               Foreground="{DynamicResource AppTextMutedBrush}"
+                               TextWrapping="Wrap"
+                               Text="{Binding Error}" />
+                    <Button Classes="secondary compact"
+                            Content="{x:Static constants:CommonConstants.Retry}"
+                            Command="{Binding RetryCommand}" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+        <Border Grid.Row="1" Margin="0,0,8,0" Background="{DynamicResource AppBorderBrush}" />
+    </Grid>
+</UserControl>

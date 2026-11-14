@@ -36,6 +36,7 @@
                 <ColorPaletteResources x:Key="Dark" Accent="#8B5CF6" />
             </FluentTheme.Palettes>
         </FluentTheme>
+        <StyleInclude Source="avares://KK.SFPlayer/Styles/PlaylistStyles.axaml" />
         <Style Selector="Button.primary, Button.secondary, Button.icon-button, Button.library-row, Button.link">
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
             <Setter Property="CornerRadius" Value="8" />

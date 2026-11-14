@@ -1,6 +1,7 @@
 using KK.SFPlayer.Constants;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -24,6 +25,114 @@ namespace KK.SFPlayer.Tests
         private const string TrackJson = """{"type":"track","uri":"spotify:track:one","name":"First track","duration_ms":185000,"artists":[{"name":"Test artist"}],"album":{"images":[{"url":"https://example.com/cover.png"}]}}""";
 
         [Fact]
+        public async Task LibraryLoadsTenAtATimeAndTrackPreviewsAreLoadedOnDemandAndCached()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/me/playlists" => Json(JsonSerializer.Serialize(new
+                {
+                    items = Enumerable.Range(request.Query.Contains("offset=10", StringComparison.Ordinal) ? 10 : 0, 10)
+                        .Select(index => new { id = index.ToString(), uri = $"spotify:playlist:{index}", name = $"Playlist {index}" }),
+                    next = request.Query.Contains("offset=10", StringComparison.Ordinal) ? null : "https://api.spotify.com/v1/me/playlists?offset=10",
+                })),
+                "/v1/playlists/0/items" => Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}"),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+
+            await viewModel.InitializeAsync();
+
+            Assert.Equal(10, viewModel.PlaylistCards.Count);
+            Assert.True(viewModel.HasMorePlaylists);
+            Assert.Single(context.Handler.Requests);
+            Assert.Contains("limit=10", context.Handler.Requests[0].Query);
+            Assert.All(viewModel.PlaylistCards, card => Assert.Empty(card.Tracks));
+
+            await viewModel.PlaylistCards[0].EnsureLoadedAsync();
+            await viewModel.PlaylistCards[0].EnsureLoadedAsync();
+            Assert.Single(viewModel.PlaylistCards[0].Tracks);
+            Assert.Single(context.Handler.Requests.FindAll(request => request.Path.EndsWith("/items", StringComparison.Ordinal)));
+
+            await viewModel.LoadMorePlaylistsCommand.ExecuteAsync(null);
+
+            Assert.Equal(20, viewModel.PlaylistCards.Count);
+            Assert.False(viewModel.HasMorePlaylists);
+            var metadata = context.Handler.Requests.FindAll(request => request.Path == "/v1/me/playlists");
+            Assert.Equal(2, metadata.Count);
+            Assert.Contains("offset=10", metadata[1].Query);
+            Assert.Equal(3, context.Handler.Requests.Count);
+        }
+
+        [Theory]
+        [InlineData(2, false, "6:10")]
+        [InlineData(20, true, "")]
+        public async Task TrackPreviewUsesOneLimitedRequestAndOnlyReportsCompleteDuration(int total, bool hasMore, string expectedDuration)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var count = Math.Min(total, PlaylistConstants.PreviewTrackLimit);
+            var items = string.Join(",", Enumerable.Repeat("{\"item\":" + TrackJson + "}", count));
+            using var context = new TestContext(request => request.Path == "/v1/playlists/demo/items" ?
+                Json("{\"items\":[" + items + "],\"total\":" + total + ",\"next\":" + (hasMore ? "\"https://api.spotify.com/next\"" : "null") + "}") :
+                throw new InvalidOperationException(request.Path));
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+
+            var preview = await context.Player.GetTrackPreviewAsync("demo", CancellationToken.None);
+
+            Assert.Equal(count, preview.Tracks.Count);
+            Assert.Equal(expectedDuration, preview.TotalDuration);
+            var request = Assert.Single(context.Handler.Requests);
+            Assert.Contains("limit=5", request.Query);
+            Assert.Contains("offset=0", request.Query);
+        }
+
+        [Fact]
+        public async Task FailedVisiblePreviewDoesNotRetryOnEveryLayoutUpdate()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var available = false;
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/me/playlists" => Json("""{"items":[{"id":"demo","name":"Demo"}],"next":null}"""),
+                "/v1/playlists/demo/items" when available => Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}"),
+                "/v1/playlists/demo/items" => Json("""{"error":{"status":503,"message":"Unavailable"}}""", HttpStatusCode.ServiceUnavailable),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            var card = Assert.Single(viewModel.PlaylistCards);
+
+            card.SetVisible(true);
+            await card.LoadingTask;
+            Assert.True(card.HasError);
+            card.SetVisible(true);
+            card.SetVisible(true);
+            Assert.Single(context.Handler.Requests.FindAll(request => request.Path.EndsWith("/items", StringComparison.Ordinal)));
+
+            available = true;
+            await card.RetryCommand.ExecuteAsync(null);
+
+            Assert.False(card.HasError);
+            Assert.Single(card.Tracks);
+            Assert.Equal(3, context.Handler.Requests.Count);
+        }
+
+        [Fact]
         public async Task FirstLaunchStaysEmptyAndDoesNotCallSpotify()
         {
             using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected network request."));
@@ -34,6 +143,7 @@ namespace KK.SFPlayer.Tests
             Assert.False(viewModel.IsConnected);
             Assert.False(viewModel.ShowPlaylists);
             Assert.False(viewModel.HasClientId);
+            Assert.False(viewModel.NeedsLogin);
             Assert.Empty(viewModel.Playlists);
             Assert.Empty(viewModel.Tracks);
             Assert.Empty(viewModel.Status);
@@ -53,6 +163,7 @@ namespace KK.SFPlayer.Tests
 
             Assert.Equal(ClientId, context.Store.Load().ClientId);
             Assert.True(viewModel.HasClientId);
+            Assert.True(viewModel.NeedsLogin);
             Assert.False(viewModel.IsSettingsOpen);
             Assert.False(viewModel.IsConnected);
             Assert.Equal(AuthenticationConstants.SignIn, viewModel.AccountTooltip);
@@ -191,6 +302,7 @@ namespace KK.SFPlayer.Tests
             {
                 await firstSession.InitializeAsync();
                 Assert.True(firstSession.IsConnected);
+                Assert.False(firstSession.NeedsLogin);
             }
 
             using var nextPlayer = new MPlayerService(context.Store, SpotifyClientConfig.CreateDefault()
@@ -218,6 +330,7 @@ namespace KK.SFPlayer.Tests
 
             Assert.False(nextSession.IsLogoutConfirmationOpen);
             Assert.False(nextSession.IsConnected);
+            Assert.True(nextSession.NeedsLogin);
             Assert.Equal(AuthenticationConstants.SignIn, nextSession.AccountTooltip);
             Assert.Null(context.Store.LoadToken(ClientId));
             Assert.Empty(nextSession.Playlists);

@@ -2,7 +2,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:constants="using:KK.SFPlayer.Constants"
         xmlns:vm="using:KK.SFPlayer.ViewModels"
-        xmlns:models="using:KK.SFPlayer.Models"
         xmlns:controls="using:KK.SFPlayer.Controls"
         xmlns:views="using:KK.SFPlayer.Views"
         x:Class="KK.SFPlayer.Views.MainWindow"
@@ -24,6 +23,9 @@
         Topmost="{Binding AlwaysOnTop}"
         Icon="avares://KK.SFPlayer/Assets/Brand/kk-sfplayer.ico"
         Title="{x:Static constants:ApplicationConstants.AppName}">
+    <Window.KeyBindings>
+        <KeyBinding Gesture="F5" Command="{Binding RefreshCommand}" />
+    </Window.KeyBindings>
     <Border Background="{DynamicResource AppBackgroundBrush}"
             BorderBrush="{DynamicResource AppBorderBrush}"
             BorderThickness="1"
@@ -78,108 +80,32 @@
                            TextWrapping="Wrap"
                            Text="{x:Static constants:SettingsConstants.EmptyClientId}"
                            IsVisible="{Binding !HasClientId}" />
-                <Grid IsVisible="{Binding ShowPlaylists}"
-                      RowDefinitions="38,*">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock VerticalAlignment="Center"
-                                   FontSize="18"
-                                   FontWeight="SemiBold"
-                                   Text="{x:Static constants:PlaybackConstants.Playlists}" />
-                        <Button Grid.Column="1"
-                                Classes="secondary compact"
-                                Content="{x:Static constants:PlaybackConstants.Refresh}"
-                                Command="{Binding RefreshCommand}" />
-                    </Grid>
-                    <ListBox Grid.Row="1"
-                             Margin="0,6,0,0"
-                             Classes="library"
-                             ItemsSource="{Binding Playlists}"
-                             IsEnabled="{Binding !IsBusy}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="models:PlaylistInfo">
-                                <Button Classes="library-row"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Stretch"
-                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenPlaylistCommand}"
-                                        CommandParameter="{Binding}">
-                                    <Grid ColumnDefinitions="48,12,*,26">
-                                        <Border Width="48" Height="48" Background="{DynamicResource AppSurfaceRaisedBrush}">
-                                            <controls:RemoteImage Url="{Binding ImageUrl}" Stretch="Uniform" />
-                                        </Border>
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Owner}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                        <Button Grid.Column="3"
-                                                Classes="link"
-                                                Content="{x:Static constants:PlaybackConstants.ExternalLink}"
-                                                ToolTip.Tip="{x:Static constants:PlaybackConstants.OpenInSpotify}"
-                                                AutomationProperties.Name="{x:Static constants:PlaybackConstants.OpenInSpotify}"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenSpotifyCommand}"
-                                                CommandParameter="{Binding Uri}" />
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
-                <Grid IsVisible="{Binding HasSelectedPlaylist}"
-                      RowDefinitions="36,64,*">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <Button Classes="secondary compact"
-                                HorizontalAlignment="Left"
-                                Content="{x:Static constants:PlaybackConstants.Back}"
-                                Command="{Binding BackCommand}" />
-                        <Button Grid.Column="1"
-                                Classes="primary compact"
-                                Content="{x:Static constants:PlaybackConstants.PlayPlaylist}"
-                                Command="{Binding PlayPlaylistCommand}" />
-                    </Grid>
-                    <Grid Grid.Row="1" Margin="0,8,0,8" ColumnDefinitions="48,12,*,26">
-                        <Border Width="48" Height="48" Background="{DynamicResource AppSurfaceRaisedBrush}">
-                            <controls:RemoteImage Url="{Binding SelectedPlaylist.ImageUrl}" Stretch="Uniform" />
-                        </Border>
-                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
-                            <TextBlock Text="{Binding SelectedPlaylist.Name}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding SelectedPlaylist.Owner}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Button Grid.Column="3" Classes="link"
-                                Content="{x:Static constants:PlaybackConstants.ExternalLink}"
-                                ToolTip.Tip="{x:Static constants:PlaybackConstants.OpenInSpotify}"
-                                Command="{Binding OpenSpotifyCommand}"
-                                CommandParameter="{Binding SelectedPlaylist.Uri}" />
-                    </Grid>
-                    <ListBox Grid.Row="2" Classes="library" ItemsSource="{Binding Tracks}" IsEnabled="{Binding !IsBusy}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="models:TrackInfo">
-                                <Button Classes="library-row"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Stretch"
-                                        ToolTip.Tip="{x:Static constants:PlaybackConstants.PlayTrack}"
-                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).PlayTrackCommand}"
-                                        CommandParameter="{Binding}">
-                                    <Grid ColumnDefinitions="40,10,*,38,26">
-                                        <Border Width="40" Height="40" Background="{DynamicResource AppSurfaceRaisedBrush}">
-                                            <controls:RemoteImage Url="{Binding ImageUrl}" Stretch="Uniform" />
-                                        </Border>
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Artists}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right"
-                                                   Text="{Binding Duration}" FontSize="11" Foreground="{DynamicResource AppTextMutedBrush}" />
-                                        <Button Grid.Column="4" Classes="link"
-                                                Content="{x:Static constants:PlaybackConstants.ExternalLink}"
-                                                ToolTip.Tip="{x:Static constants:PlaybackConstants.OpenInSpotify}"
-                                                AutomationProperties.Name="{x:Static constants:PlaybackConstants.OpenInSpotify}"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenSpotifyCommand}"
-                                                CommandParameter="{Binding Uri}" />
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
+                <TextBlock Margin="16"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource AppTextMutedBrush}"
+                           FontSize="14"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           Text="{x:Static constants:PlaylistConstants.SignInPrompt}"
+                           IsVisible="{Binding NeedsLogin}" />
+                <ListBox x:Name="PlaylistsList"
+                         IsVisible="{Binding ShowPlaylists}"
+                         Classes="playlist-list"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ItemsSource="{Binding PlaylistCards}">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel CacheLength="0" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PlaylistCardViewModel">
+                            <views:PlaylistCardView />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
                 <StackPanel Grid.Row="1" Margin="0,6,0,4" Spacing="4">
                     <ProgressBar Height="2" IsIndeterminate="True" IsVisible="{Binding IsBusy}" />
                     <TextBlock MaxHeight="48" Text="{Binding Status}" IsVisible="{Binding HasStatus}"

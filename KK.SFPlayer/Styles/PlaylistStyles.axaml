@@ -1,0 +1,69 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="Button.playlist-title">
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.playlist-title:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource AppPrimaryHoverBrush}" />
+    </Style>
+    <Style Selector="Button.playlist-title:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.playlist-list">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="ListBox.playlist-list ListBoxItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <ContentPresenter Content="{TemplateBinding Content}"
+                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                  HorizontalContentAlignment="Stretch" />
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.playlist-list ScrollBar:vertical">
+        <Setter Property="Width" Value="4" />
+        <Setter Property="MinWidth" Value="4" />
+        <Setter Property="Margin" Value="2,0,0,0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="AllowAutoHide" Value="False" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Track Name="PART_Track"
+                       Orientation="Vertical"
+                       IsDirectionReversed="True"
+                       Minimum="{TemplateBinding Minimum}"
+                       Maximum="{TemplateBinding Maximum}"
+                       Value="{TemplateBinding Value, Mode=TwoWay}"
+                       ViewportSize="{TemplateBinding ViewportSize}">
+                    <Track.Thumb>
+                        <Thumb MinHeight="24">
+                            <Thumb.Template>
+                                <ControlTemplate>
+                                    <Border Name="ThumbSurface"
+                                            Background="{DynamicResource AppTextMutedBrush}"
+                                            CornerRadius="2"
+                                            Opacity="0.6" />
+                                </ControlTemplate>
+                            </Thumb.Template>
+                        </Thumb>
+                    </Track.Thumb>
+                </Track>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.playlist-list ScrollBar Thumb:pointerover /template/ Border#ThumbSurface">
+        <Setter Property="Background" Value="{DynamicResource AppPrimaryHoverBrush}" />
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+</Styles>

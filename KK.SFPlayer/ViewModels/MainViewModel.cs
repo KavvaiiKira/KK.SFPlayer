@@ -1,6 +1,8 @@
 using KK.SFPlayer.Constants;
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.Net;
 using System.Threading;
@@ -22,6 +24,10 @@ namespace KK.SFPlayer.ViewModels
         private Func<CancellationToken, Task>? _retryAction;
         private AppSettings _settings = new();
         private bool _disposed;
+        private bool _disposePlayerScheduled;
+        private int _nextPlaylistOffset;
+        private readonly HashSet<string> _playlistIds = [];
+        private readonly List<Task> _retiredPreviewLoads = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
@@ -33,6 +39,8 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(BackCommand))]
         [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyPropertyChangedFor(nameof(NeedsLogin))]
         private bool _isBusy;
 
         [ObservableProperty]
@@ -42,6 +50,8 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
         [NotifyPropertyChangedFor(nameof(AccountTooltip))]
         [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyPropertyChangedFor(nameof(NeedsLogin))]
         private bool _isConnected;
 
         [ObservableProperty]
@@ -54,6 +64,7 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(BackCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
         private bool _isLogoutConfirmationOpen;
 
         [ObservableProperty]
@@ -65,7 +76,12 @@ namespace KK.SFPlayer.ViewModels
         [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
         [NotifyCanExecuteChangedFor(nameof(BackCommand))]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
         private bool _isSettingsOpen;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        private bool _hasMorePlaylists;
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
@@ -96,6 +112,8 @@ namespace KK.SFPlayer.ViewModels
 
         public ObservableCollection<PlaylistInfo> Playlists { get; } = [];
 
+        public ObservableCollection<PlaylistCardViewModel> PlaylistCards { get; } = [];
+
         public ObservableCollection<TrackInfo> Tracks { get; } = [];
 
         public SettingsViewModel Settings { get; }
@@ -104,9 +122,11 @@ namespace KK.SFPlayer.ViewModels
 
         public bool HasClientId => !string.IsNullOrWhiteSpace(ClientId);
 
+        public bool NeedsLogin => HasClientId && !IsConnected && !IsBusy;
+
         public bool HasSelectedPlaylist => SelectedPlaylist is not null;
 
-        public bool ShowPlaylists => IsConnected && !HasSelectedPlaylist;
+        public bool ShowPlaylists => IsConnected;
 
         public bool CanUsePlayer => IsConnected && CanEdit;
 
@@ -117,6 +137,8 @@ namespace KK.SFPlayer.ViewModels
         public bool CanConfirmLogout => IsConnected && !IsBusy && IsLogoutConfirmationOpen;
 
         public bool CanRetryRequest => HasRetry && CanEdit;
+
+        public bool CanLoadMorePlaylists => HasMorePlaylists && CanUsePlayer;
 
         public string TopmostTooltip => AlwaysOnTop ? WindowConstants.TopmostOn : WindowConstants.TopmostOff;
 
@@ -131,6 +153,7 @@ namespace KK.SFPlayer.ViewModels
                 _settings = _store.Load();
                 AlwaysOnTop = _settings.AlwaysOnTop;
                 OnPropertyChanged(nameof(HasClientId));
+                OnPropertyChanged(nameof(NeedsLogin));
             }
             catch (Exception exception)
             {
@@ -204,12 +227,13 @@ namespace KK.SFPlayer.ViewModels
             var clientChanged = ClientId != clientId;
             _settings = next;
             OnPropertyChanged(nameof(HasClientId));
+            OnPropertyChanged(nameof(NeedsLogin));
             if (clientChanged)
             {
                 _player.Disconnect();
                 IsConnected = false;
                 Back();
-                Playlists.Clear();
+                ClearLibrary();
             }
 
         }
@@ -258,7 +282,7 @@ namespace KK.SFPlayer.ViewModels
                 IsConnected = false;
                 IsLogoutConfirmationOpen = false;
                 Back();
-                Playlists.Clear();
+                ClearLibrary();
                 return Task.CompletedTask;
             });
         }
@@ -281,6 +305,13 @@ namespace KK.SFPlayer.ViewModels
 
         [RelayCommand(CanExecute = nameof(CanUsePlayer))]
         private Task RefreshAsync() => RunAsync(LoadPlaylistsAsync, true);
+
+        [RelayCommand(CanExecute = nameof(CanLoadMorePlaylists))]
+        private Task LoadMorePlaylistsAsync() => RunAsync(async cancellationToken =>
+        {
+            var page = await _player.GetPlaylistPageAsync(_nextPlaylistOffset, cancellationToken);
+            AppendPlaylistPage(page);
+        }, true);
 
         [RelayCommand(CanExecute = nameof(CanRetryRequest))]
         private async Task RetryAsync()
@@ -359,12 +390,22 @@ namespace KK.SFPlayer.ViewModels
 
         public void Dispose()
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _disposed = true;
             _lifetime.Cancel();
             _operation?.Cancel();
+            foreach (var card in PlaylistCards)
+            {
+                card.Dispose();
+            }
+
             if (_operation is null)
             {
-                _player.Dispose();
+                BeginDisposePlayer();
             }
 
             _lifetime.Dispose();
@@ -389,15 +430,61 @@ namespace KK.SFPlayer.ViewModels
 
         private async Task LoadPlaylistsAsync(CancellationToken cancellationToken)
         {
-            var playlists = await _player.GetPlaylistsAsync(cancellationToken);
+            var page = await _player.GetPlaylistPageAsync(0, cancellationToken);
             Back();
-            Playlists.Clear();
-            foreach (var playlist in playlists)
-            {
-                Playlists.Add(playlist);
-            }
+            ClearLibrary();
+            AppendPlaylistPage(page);
 
             Status = Playlists.Count == 0 ? PlaybackConstants.NoPlaylists : string.Empty;
+        }
+
+        private void AppendPlaylistPage(PlaylistPage page)
+        {
+            foreach (var playlist in page.Playlists)
+            {
+                if (_playlistIds.Add(playlist.Id))
+                {
+                    Playlists.Add(playlist);
+                    PlaylistCards.Add(new PlaylistCardViewModel(playlist, _player, OpenSpotifyCommand, _lifetime.Token));
+                }
+            }
+
+            _nextPlaylistOffset = page.NextOffset;
+            HasMorePlaylists = page.HasMore;
+        }
+
+        private void ClearLibrary()
+        {
+            _retiredPreviewLoads.RemoveAll(task => task.IsCompleted);
+            foreach (var card in PlaylistCards)
+            {
+                card.Dispose();
+                _retiredPreviewLoads.Add(card.LoadingTask);
+            }
+
+            PlaylistCards.Clear();
+            Playlists.Clear();
+            _playlistIds.Clear();
+            HasMorePlaylists = false;
+            _nextPlaylistOffset = 0;
+        }
+
+        private void BeginDisposePlayer()
+        {
+            if (_disposePlayerScheduled)
+            {
+                return;
+            }
+
+            _disposePlayerScheduled = true;
+            var pending = _retiredPreviewLoads.Concat(PlaylistCards.Select(card => card.LoadingTask)).ToArray();
+            _ = DisposePlayerAsync(pending);
+        }
+
+        private async Task DisposePlayerAsync(Task[] pending)
+        {
+            await Task.WhenAll(pending).ConfigureAwait(false);
+            _player.Dispose();
         }
 
         private async Task RunAsync(Func<CancellationToken, Task> action, bool retryable = false)
@@ -432,7 +519,7 @@ namespace KK.SFPlayer.ViewModels
 
                     IsConnected = false;
                     Back();
-                    Playlists.Clear();
+                    ClearLibrary();
                 }
 
                 Status = ErrorMessages.From(exception);
@@ -448,7 +535,7 @@ namespace KK.SFPlayer.ViewModels
                 _operation = null;
                 if (_disposed)
                 {
-                    _player.Dispose();
+                    BeginDisposePlayer();
                 }
             }
         }
