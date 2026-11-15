@@ -39,7 +39,8 @@ namespace KK.SFPlayer.Tests
                 {
                     completed.SetException(exception);
                 }
-            }) { IsBackground = true };
+            })
+            { IsBackground = true };
             if (OperatingSystem.IsWindows())
             {
                 thread.SetApartmentState(ApartmentState.STA);
@@ -493,12 +494,7 @@ namespace KK.SFPlayer.Tests
 
             public void Disconnect() => IsConnected = false;
 
-            public Task<IReadOnlyList<PlaylistInfo>> GetPlaylistsAsync(CancellationToken cancellationToken) => throw new InvalidOperationException();
-
-            public Task<IReadOnlyList<TrackInfo>> GetTracksAsync(string playlistId, CancellationToken cancellationToken) =>
-                throw new InvalidOperationException("Full playlist loading is not expected.");
-
-            public Task<TrackPage> GetTrackPageAsync(string playlistId, int offset, CancellationToken cancellationToken)
+            private Task<TrackPage> GetTrackPageAsync(string playlistId, int offset, CancellationToken cancellationToken)
             {
                 TrackOffsets.Add(offset);
                 var tracks = Enumerable.Range(offset, Math.Min(50, 60 - offset))
@@ -508,8 +504,6 @@ namespace KK.SFPlayer.Tests
                         new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddDays(index))).ToArray();
                 return Task.FromResult(new TrackPage(tracks, offset + tracks.Length, offset == 0, 60));
             }
-
-            public void InvalidateTrackCache(string? playlistId = null) { }
 
             public Task<TrackPage> GetSortedTrackPageAsync(string playlistId, int sort, int offset, CancellationToken cancellationToken)
             {

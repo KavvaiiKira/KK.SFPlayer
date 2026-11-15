@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -29,7 +28,6 @@ namespace KK.SFPlayer.ViewModels
         private int _nextTrackOffset;
         private int _totalTrackCount;
         private bool _restoringSort;
-        internal Task SortLoadingTask { get; private set; } = Task.CompletedTask;
         private readonly HashSet<string> _playlistIds = [];
         private readonly HashSet<string> _pendingPlaylistUpdates = [];
         private readonly List<Task> _retiredPreviewLoads = [];
@@ -58,6 +56,142 @@ namespace KK.SFPlayer.ViewModels
         [NotifyPropertyChangedFor(nameof(HasNowPlaying))]
         private string _nowPlaying = string.Empty;
 
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        private bool _isPlaying;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
+        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        private bool _hasPlayback;
+
+        [ObservableProperty]
+        private double _volume = StreamingConstants.DefaultVolume * 100;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ShuffleTooltip))]
+        private bool _shuffleEnabled;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RepeatTooltip))]
+        [NotifyPropertyChangedFor(nameof(IsRepeatEnabled))]
+        [NotifyPropertyChangedFor(nameof(IsRepeatOne))]
+        private int _repeatMode;
+
+        [ObservableProperty]
+        private bool _isChangingMode;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(BackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyPropertyChangedFor(nameof(NeedsLogin))]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
+        private bool _isBusy;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
+        [NotifyPropertyChangedFor(nameof(AccountTooltip))]
+        [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyPropertyChangedFor(nameof(NeedsLogin))]
+        private bool _isConnected;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(BackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
+        private bool _isLogoutConfirmationOpen;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(BackCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
+        private bool _isSettingsOpen;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
+        private bool _hasMorePlaylists;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        private bool _hasRetry;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(TopmostTooltip))]
+        private bool _alwaysOnTop;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasStatus))]
+        [NotifyPropertyChangedFor(nameof(HasNowPlaying))]
+        private string _status = string.Empty;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasSelectedPlaylist))]
+        [NotifyPropertyChangedFor(nameof(ShowPlaylists))]
+        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
+        private PlaylistInfo? _selectedPlaylist;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
+        private bool _hasMoreTracks;
+
+        [ObservableProperty]
+        private int _selectedSort;
+
+        [ObservableProperty]
+        private string _playlistSummary = string.Empty;
+
+        internal MainViewModel(IMPlayerService player, SettingsStore store, IStartupService? startup = null)
+        {
+            _player = player;
+            _player.PlayingChanged += OnPlayingChanged;
+            _player.ModesChanged += OnModesChanged;
+            _player.ProgressChanged += OnProgressChanged;
+            _player.PlaylistChanged += OnPlaylistChanged;
+            _player.CacheWarning += OnCacheWarning;
+            _store = store;
+            _startup = startup ?? new StartupService();
+            Settings = new SettingsViewModel(SaveSettings, CloseSettings);
+        }
+
         public bool HasNowPlaying => !HasStatus && !string.IsNullOrWhiteSpace(NowPlaying);
 
         public bool IsSeeking { get; private set; }
@@ -71,6 +205,161 @@ namespace KK.SFPlayer.ViewModels
         public string ElapsedTime => FormatTrackTime(PositionMs);
 
         public string RemainingTime => string.Format(StreamingConstants.RemainingTimeFormat, FormatTrackTime(DurationMs - PositionMs));
+
+        public string ShuffleTooltip => ShuffleEnabled ? StreamingConstants.ShuffleOn : StreamingConstants.ShuffleOff;
+
+        public string RepeatTooltip => RepeatMode switch
+        {
+            1 => StreamingConstants.RepeatAll,
+            2 => StreamingConstants.RepeatOne,
+            _ => StreamingConstants.RepeatOff,
+        };
+
+        public bool IsRepeatEnabled => RepeatMode > 0;
+
+        public bool IsRepeatOne => RepeatMode == 2;
+
+        public bool CanUseTransport => IsConnected && HasPlayback;
+
+        public bool CanChangeModes => CanUseTransport;
+
+        public string PlaybackTooltip => IsPlaying ? StreamingConstants.Pause :
+            HasPlayback ? StreamingConstants.Resume : StreamingConstants.Play;
+
+        public bool CanTogglePlayback => IsConnected && (HasPlayback || (CanEdit && Playlists.Count > 0));
+
+        public ObservableCollection<PlaylistInfo> Playlists { get; } = [];
+
+        public ObservableCollection<PlaylistCardViewModel> PlaylistCards { get; } = [];
+
+        public ObservableCollection<TrackInfo> Tracks { get; } = [];
+
+        public ObservableCollection<TrackInfo> SortedTracks { get; } = [];
+
+        public IReadOnlyList<string> SortOptions { get; } =
+            [PlaylistConstants.OriginalOrder, PlaylistConstants.TitleOrder, PlaylistConstants.ArtistOrder,
+                PlaylistConstants.DurationOrder, PlaylistConstants.NewestOrder, PlaylistConstants.OldestOrder];
+
+        public SettingsViewModel Settings { get; }
+
+        public bool HasStatus => !string.IsNullOrEmpty(Status);
+
+        public bool HasClientId => !string.IsNullOrWhiteSpace(ClientId);
+
+        public bool NeedsLogin => HasClientId && !IsConnected && !IsBusy;
+
+        public bool HasSelectedPlaylist => SelectedPlaylist is not null;
+
+        public bool ShowPlaylists => IsConnected && !HasSelectedPlaylist;
+
+        public bool CanUsePlayer => IsConnected && CanEdit;
+
+        public bool CanPlay => CanUsePlayer && HasSelectedPlaylist;
+
+        public bool CanEdit => !IsBusy && !IsLogoutConfirmationOpen && !IsSettingsOpen;
+
+        public bool CanConfirmLogout => IsConnected && !IsBusy && IsLogoutConfirmationOpen;
+
+        public bool CanRetryRequest => HasRetry && CanEdit;
+
+        public bool CanLoadMorePlaylists => HasMorePlaylists && CanUsePlayer;
+
+        public bool CanLoadMoreTracks => HasMoreTracks && CanPlay && !HasRetry;
+
+        public string TopmostTooltip => AlwaysOnTop ? WindowConstants.TopmostOn : WindowConstants.TopmostOff;
+
+        public string AccountTooltip => IsConnected ? AuthenticationConstants.SignOut : AuthenticationConstants.SignIn;
+
+        internal Task SortLoadingTask { get; private set; } = Task.CompletedTask;
+
+        private string ClientId => _settings.ClientId?.Trim() ?? string.Empty;
+
+        public void BeginSeek()
+        {
+            if (CanSeek)
+            {
+                IsSeeking = true;
+                _seekTrackUri = _progress.TrackUri;
+            }
+        }
+
+        public void CommitSeek()
+        {
+            if (!IsSeeking)
+            {
+                return;
+            }
+
+            IsSeeking = false;
+            if (CanSeek && _seekTrackUri == _progress.TrackUri)
+            {
+                var position = (int)Math.Clamp(PositionMs, 0, DurationMs);
+                SendTransport(() => _player.Seek(position));
+            }
+        }
+
+        public async Task InitializeAsync()
+        {
+            try
+            {
+                _settings = _store.Load();
+                AlwaysOnTop = _settings.AlwaysOnTop;
+                OnPropertyChanged(nameof(HasClientId));
+                OnPropertyChanged(nameof(NeedsLogin));
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(ClientId))
+            {
+                return;
+            }
+
+            await RunAsync(async cancellationToken =>
+            {
+                IsConnected = await _player.RestoreAsync(ClientId, cancellationToken);
+                if (IsConnected)
+                {
+                    if (_player.GetCachedPlaylists() is { } cached)
+                    {
+                        AppendPlaylistPage(cached);
+                    }
+
+                    await LoadPlaylistsAsync(cancellationToken);
+                }
+            }, true);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _player.PlayingChanged -= OnPlayingChanged;
+            _player.ModesChanged -= OnModesChanged;
+            _player.ProgressChanged -= OnProgressChanged;
+            _player.PlaylistChanged -= OnPlaylistChanged;
+            _player.CacheWarning -= OnCacheWarning;
+            _lifetime.Cancel();
+            _operation?.Cancel();
+            foreach (var card in PlaylistCards)
+            {
+                card.Dispose();
+            }
+
+            if (_operation is null)
+            {
+                BeginDisposePlayer();
+            }
+
+            _lifetime.Dispose();
+        }
 
         private static string FormatTrackTime(double milliseconds)
         {
@@ -106,72 +395,6 @@ namespace KK.SFPlayer.ViewModels
                 PositionMs = Math.Clamp(progress.PositionMs, 0, DurationMs);
             }
         }
-
-        public void BeginSeek()
-        {
-            if (CanSeek)
-            {
-                IsSeeking = true;
-                _seekTrackUri = _progress.TrackUri;
-            }
-        }
-
-        public void CommitSeek()
-        {
-            if (!IsSeeking)
-            {
-                return;
-            }
-
-            IsSeeking = false;
-            if (CanSeek && _seekTrackUri == _progress.TrackUri)
-            {
-                var position = (int)Math.Clamp(PositionMs, 0, DurationMs);
-                SendTransport(() => _player.Seek(position));
-            }
-        }
-
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
-        private bool _isPlaying;
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
-        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
-        private bool _hasPlayback;
-
-        [ObservableProperty]
-        private double _volume = StreamingConstants.DefaultVolume * 100;
-
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(ShuffleTooltip))]
-        private bool _shuffleEnabled;
-
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(RepeatTooltip))]
-        [NotifyPropertyChangedFor(nameof(IsRepeatEnabled))]
-        [NotifyPropertyChangedFor(nameof(IsRepeatOne))]
-        private int _repeatMode;
-
-        [ObservableProperty]
-        private bool _isChangingMode;
-
-        public string ShuffleTooltip => ShuffleEnabled ? StreamingConstants.ShuffleOn : StreamingConstants.ShuffleOff;
-
-        public string RepeatTooltip => RepeatMode switch
-        {
-            1 => StreamingConstants.RepeatAll,
-            2 => StreamingConstants.RepeatOne,
-            _ => StreamingConstants.RepeatOff,
-        };
-
-        public bool IsRepeatEnabled => RepeatMode > 0;
-
-        public bool IsRepeatOne => RepeatMode == 2;
-
-        public bool CanUseTransport => IsConnected && HasPlayback;
-
-        public bool CanChangeModes => CanUseTransport;
 
         partial void OnHasPlaybackChanged(bool value) => UpdateTransportCommands();
 
@@ -314,11 +537,6 @@ namespace KK.SFPlayer.ViewModels
             }
         }
 
-        public string PlaybackTooltip => IsPlaying ? StreamingConstants.Pause :
-            HasPlayback ? StreamingConstants.Resume : StreamingConstants.Play;
-
-        public bool CanTogglePlayback => IsConnected && (HasPlayback || (CanEdit && Playlists.Count > 0));
-
         partial void OnVolumeChanged(double value)
         {
             try
@@ -364,129 +582,6 @@ namespace KK.SFPlayer.ViewModels
             }
         }
 
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(BackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
-        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
-        [NotifyPropertyChangedFor(nameof(NeedsLogin))]
-        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
-        private bool _isBusy;
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
-        [NotifyPropertyChangedFor(nameof(AccountTooltip))]
-        [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
-        [NotifyPropertyChangedFor(nameof(NeedsLogin))]
-        private bool _isConnected;
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
-        [NotifyCanExecuteChangedFor(nameof(ConfirmLogoutCommand))]
-        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(BackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
-        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
-        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
-        private bool _isLogoutConfirmationOpen;
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(AccountCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
-        [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
-        [NotifyCanExecuteChangedFor(nameof(OpenPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(BackCommand))]
-        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
-        [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
-        private bool _isSettingsOpen;
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(LoadMorePlaylistsCommand))]
-        private bool _hasMorePlaylists;
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        private bool _hasRetry;
-
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(TopmostTooltip))]
-        private bool _alwaysOnTop;
-
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(HasStatus))]
-        [NotifyPropertyChangedFor(nameof(HasNowPlaying))]
-        private string _status = string.Empty;
-
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(HasSelectedPlaylist))]
-        [NotifyPropertyChangedFor(nameof(ShowPlaylists))]
-        [NotifyCanExecuteChangedFor(nameof(PlayPlaylistCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayCardCommand))]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        [NotifyCanExecuteChangedFor(nameof(PlayTrackCommand))]
-        private PlaylistInfo? _selectedPlaylist;
-
-        internal MainViewModel(IMPlayerService player, SettingsStore store, IStartupService? startup = null)
-        {
-            _player = player;
-            _player.PlayingChanged += OnPlayingChanged;
-            _player.ModesChanged += OnModesChanged;
-            _player.ProgressChanged += OnProgressChanged;
-            _player.PlaylistChanged += OnPlaylistChanged;
-            _player.CacheWarning += OnCacheWarning;
-            _store = store;
-            _startup = startup ?? new StartupService();
-            Settings = new SettingsViewModel(SaveSettings, CloseSettings);
-        }
-
-        public ObservableCollection<PlaylistInfo> Playlists { get; } = [];
-
-        public ObservableCollection<PlaylistCardViewModel> PlaylistCards { get; } = [];
-
-        public ObservableCollection<TrackInfo> Tracks { get; } = [];
-
-        public ObservableCollection<TrackInfo> SortedTracks { get; } = [];
-
-        public IReadOnlyList<string> SortOptions { get; } =
-            [PlaylistConstants.OriginalOrder, PlaylistConstants.TitleOrder, PlaylistConstants.ArtistOrder,
-                PlaylistConstants.DurationOrder, PlaylistConstants.NewestOrder, PlaylistConstants.OldestOrder];
-
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(LoadMoreTracksCommand))]
-        private bool _hasMoreTracks;
-
-        [ObservableProperty]
-        private int _selectedSort;
-
-        [ObservableProperty]
-        private string _playlistSummary = string.Empty;
-
         partial void OnSelectedSortChanged(int value)
         {
             if (_restoringSort || SelectedPlaylist is not { } playlist)
@@ -522,73 +617,6 @@ namespace KK.SFPlayer.ViewModels
             HasMoreTracks = false;
             _nextTrackOffset = 0;
             _totalTrackCount = 0;
-        }
-
-        public SettingsViewModel Settings { get; }
-
-        public bool HasStatus => !string.IsNullOrEmpty(Status);
-
-        public bool HasClientId => !string.IsNullOrWhiteSpace(ClientId);
-
-        public bool NeedsLogin => HasClientId && !IsConnected && !IsBusy;
-
-        public bool HasSelectedPlaylist => SelectedPlaylist is not null;
-
-        public bool ShowPlaylists => IsConnected && !HasSelectedPlaylist;
-
-        public bool CanUsePlayer => IsConnected && CanEdit;
-
-        public bool CanPlay => CanUsePlayer && HasSelectedPlaylist;
-
-        public bool CanEdit => !IsBusy && !IsLogoutConfirmationOpen && !IsSettingsOpen;
-
-        public bool CanConfirmLogout => IsConnected && !IsBusy && IsLogoutConfirmationOpen;
-
-        public bool CanRetryRequest => HasRetry && CanEdit;
-
-        public bool CanLoadMorePlaylists => HasMorePlaylists && CanUsePlayer;
-
-        public bool CanLoadMoreTracks => HasMoreTracks && CanPlay && !HasRetry;
-
-        public string TopmostTooltip => AlwaysOnTop ? WindowConstants.TopmostOn : WindowConstants.TopmostOff;
-
-        public string AccountTooltip => IsConnected ? AuthenticationConstants.SignOut : AuthenticationConstants.SignIn;
-
-        private string ClientId => _settings.ClientId?.Trim() ?? string.Empty;
-
-        public async Task InitializeAsync()
-        {
-            try
-            {
-                _settings = _store.Load();
-                AlwaysOnTop = _settings.AlwaysOnTop;
-                OnPropertyChanged(nameof(HasClientId));
-                OnPropertyChanged(nameof(NeedsLogin));
-            }
-            catch (Exception exception)
-            {
-                Status = ErrorMessages.From(exception);
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(ClientId))
-            {
-                return;
-            }
-
-            await RunAsync(async cancellationToken =>
-            {
-                IsConnected = await _player.RestoreAsync(ClientId, cancellationToken);
-                if (IsConnected)
-                {
-                    if (_player.GetCachedPlaylists() is { } cached)
-                    {
-                        AppendPlaylistPage(cached);
-                    }
-
-                    await LoadPlaylistsAsync(cancellationToken);
-                }
-            }, true);
         }
 
         [RelayCommand(CanExecute = nameof(CanEdit))]
@@ -719,17 +747,16 @@ namespace KK.SFPlayer.ViewModels
         }
 
         [RelayCommand(CanExecute = nameof(CanUsePlayer))]
-        private Task RefreshAsync()
-        {
-            return SelectedPlaylist is { } playlist ? RunAsync(async cancellationToken =>
+        private Task RefreshAsync() => SelectedPlaylist is { } playlist ?
+            RunAsync(async cancellationToken =>
             {
                 await _player.CheckPlaylistVersionAsync(playlist.Id, cancellationToken);
                 await _player.EnsurePlaylistFreshAsync(playlist.Id, cancellationToken);
                 _pendingPlaylistUpdates.Remove(playlist.Id);
                 ResetTrackPages();
                 await LoadTrackPageAsync(playlist.Id, cancellationToken);
-            }, true) : RunAsync(LoadPlaylistsAsync, true);
-        }
+            }, true) :
+            RunAsync(LoadPlaylistsAsync, true);
 
         private void OnCacheWarning(object? sender, string message) => Status = message;
 
@@ -913,34 +940,6 @@ namespace KK.SFPlayer.ViewModels
                 Status = string.Empty;
             });
 
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _player.PlayingChanged -= OnPlayingChanged;
-            _player.ModesChanged -= OnModesChanged;
-            _player.ProgressChanged -= OnProgressChanged;
-            _player.PlaylistChanged -= OnPlaylistChanged;
-            _player.CacheWarning -= OnCacheWarning;
-            _lifetime.Cancel();
-            _operation?.Cancel();
-            foreach (var card in PlaylistCards)
-            {
-                card.Dispose();
-            }
-
-            if (_operation is null)
-            {
-                BeginDisposePlayer();
-            }
-
-            _lifetime.Dispose();
-        }
-
         partial void OnIsConnectedChanged(bool value)
         {
             OnPropertyChanged(nameof(ShowPlaylists));
@@ -1085,8 +1084,7 @@ namespace KK.SFPlayer.ViewModels
             }
             catch (Exception exception)
             {
-                if (exception is SpotifyAPI.Web.APIException api &&
-                    api.Response?.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
+                if (ErrorMessages.IsAuthenticationFailure(exception))
                 {
                     try
                     {

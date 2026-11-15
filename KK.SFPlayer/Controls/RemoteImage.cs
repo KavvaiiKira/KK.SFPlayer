@@ -16,15 +16,15 @@ namespace KK.SFPlayer.Controls
 {
     public sealed partial class RemoteImage : UserControl
     {
-        private static readonly HttpClient Client = new(new TransientRetryHandler()) { Timeout = TimeSpan.FromSeconds(20) };
-        private static readonly SemaphoreSlim Downloads = new(4, 4);
-
         public static readonly StyledProperty<string?> UrlProperty = AvaloniaProperty.Register<RemoteImage, string?>(nameof(Url));
         public static readonly StyledProperty<Stretch> StretchProperty = AvaloniaProperty.Register<RemoteImage, Stretch>(nameof(Stretch), Stretch.Uniform);
         public static readonly StyledProperty<Bitmap?> ArtworkProperty = AvaloniaProperty.Register<RemoteImage, Bitmap?>(nameof(Artwork));
         public static readonly StyledProperty<bool> HasFailedProperty = AvaloniaProperty.Register<RemoteImage, bool>(nameof(HasFailed));
         public static readonly StyledProperty<bool> IsPlaceholderVisibleProperty = AvaloniaProperty.Register<RemoteImage, bool>(nameof(IsPlaceholderVisible), true);
         public static readonly StyledProperty<string> ErrorMessageProperty = AvaloniaProperty.Register<RemoteImage, string>(nameof(ErrorMessage), string.Empty);
+
+        private static readonly HttpClient Client = new(new TransientRetryHandler()) { Timeout = TimeSpan.FromSeconds(20) };
+        private static readonly SemaphoreSlim Downloads = new(4, 4);
 
         private CancellationTokenSource? _download;
 
@@ -82,6 +82,7 @@ namespace KK.SFPlayer.Controls
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
         {
             base.OnPropertyChanged(change);
+
             if (change.Property == UrlProperty && this.IsAttachedToVisualTree())
             {
                 Reload();
@@ -97,8 +98,11 @@ namespace KK.SFPlayer.Controls
         private void ClearArtwork()
         {
             var previous = Artwork;
+
             Artwork = null;
+
             previous?.Dispose();
+
             HasFailed = false;
             ErrorMessage = string.Empty;
             IsPlaceholderVisible = true;
@@ -108,7 +112,9 @@ namespace KK.SFPlayer.Controls
         {
             _download?.Cancel();
             _download = new CancellationTokenSource();
+
             ClearArtwork();
+
             _ = LoadAsync(Url, _download);
         }
 

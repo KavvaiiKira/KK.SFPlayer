@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using KK.SFPlayer.Models.Records;
@@ -46,17 +45,9 @@ namespace KK.SFPlayer.Services
 
         void Disconnect();
 
-        Task<IReadOnlyList<PlaylistInfo>> GetPlaylistsAsync(CancellationToken cancellationToken);
-
         Task<PlaylistPage> GetPlaylistPageAsync(int offset, CancellationToken cancellationToken);
 
-        Task<IReadOnlyList<TrackInfo>> GetTracksAsync(string playlistId, CancellationToken cancellationToken);
-
-        Task<TrackPage> GetTrackPageAsync(string playlistId, int offset, CancellationToken cancellationToken);
-
         Task<TrackPage> GetSortedTrackPageAsync(string playlistId, int sort, int offset, CancellationToken cancellationToken);
-
-        void InvalidateTrackCache(string? playlistId = null);
 
         Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken);
 

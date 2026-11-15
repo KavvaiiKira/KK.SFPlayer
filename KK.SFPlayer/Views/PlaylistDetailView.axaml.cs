@@ -22,6 +22,25 @@ namespace KK.SFPlayer.Views
             DataContextChanged += (_, _) => UpdateModel();
         }
 
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+            LayoutUpdated += OnLayoutUpdated;
+            UpdateModel();
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            LayoutUpdated -= OnLayoutUpdated;
+            if (_model is not null)
+            {
+                _model.PropertyChanged -= OnModelPropertyChanged;
+                _model = null;
+            }
+
+            base.OnDetachedFromVisualTree(e);
+        }
+
         private void OnTracksScrolled(object? sender, ScrollChangedEventArgs e)
         {
             if (e.OffsetDelta.Y > 0 && e.ExtentDelta.Y == 0 && e.Source is ScrollViewer scroll &&
@@ -49,25 +68,6 @@ namespace KK.SFPlayer.Views
                 _model.PlayTrackCommand.Execute(track);
                 e.Handled = true;
             }
-        }
-
-        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
-        {
-            base.OnAttachedToVisualTree(e);
-            LayoutUpdated += OnLayoutUpdated;
-            UpdateModel();
-        }
-
-        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
-        {
-            LayoutUpdated -= OnLayoutUpdated;
-            if (_model is not null)
-            {
-                _model.PropertyChanged -= OnModelPropertyChanged;
-                _model = null;
-            }
-
-            base.OnDetachedFromVisualTree(e);
         }
 
         private void UpdateModel()

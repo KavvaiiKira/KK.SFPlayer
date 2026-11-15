@@ -10,7 +10,7 @@ namespace KK.SFPlayer.Services
 {
     internal static class AudioSessionBranding
     {
-        public static string IconLocation => $"{Path.Combine(AppContext.BaseDirectory, ApplicationConstants.AppName + ".exe")},-{AudioSessionConstants.IconResourceId}";
+        public static string IconLocation => $"{Path.Combine(AppContext.BaseDirectory, ApplicationConstants.ExecutableFileName)},-{AudioSessionConstants.IconResourceId}";
 
         public static int Apply(IReadOnlySet<int> processIds, string name, string iconPath, CancellationToken cancellationToken)
         {

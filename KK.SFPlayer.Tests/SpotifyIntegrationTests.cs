@@ -25,6 +25,68 @@ namespace KK.SFPlayer.Tests
         private const string TrackJson = """{"type":"track","uri":"spotify:track:one","name":"First track","duration_ms":185000,"artists":[{"name":"Test artist"}],"album":{"images":[{"url":"https://example.com/cover.png"}]}}""";
 
         [Fact]
+        public async Task OrdinaryBadRequestDoesNotRemoveSavedAuthorization()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => Json("""{"error":{"status":400,"message":"Invalid request"}}""", HttpStatusCode.BadRequest));
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            Assert.True(viewModel.IsConnected);
+            Assert.NotNull(context.Store.LoadToken(ClientId));
+            Assert.Equal(NetworkConstants.SpotifyError, viewModel.Status);
+        }
+
+        [Fact]
+        public async Task InvalidRefreshTokenRequiresNewAuthorization()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => Json("""{"error":"invalid_grant","error_description":"Revoked token"}""", HttpStatusCode.BadRequest));
+            context.SeedToken();
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            Assert.False(viewModel.IsConnected);
+            Assert.Null(context.Store.LoadToken(ClientId));
+            Assert.Equal(AuthenticationConstants.Reconnect, viewModel.Status);
+        }
+
+        [Fact]
+        public async Task RefreshResponseAfterLogoutDoesNotRestoreOrSaveSession()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected request."));
+            context.SeedToken();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var response = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            context.Handler.AsyncResponse = (request, _) =>
+            {
+                Assert.Equal("/api/token", request.Path);
+                started.TrySetResult();
+                return response.Task;
+            };
+
+            var restore = context.Player.RestoreAsync(ClientId, CancellationToken.None);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            context.Player.Disconnect();
+            response.SetResult(Json(TokenJson));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => restore);
+            Assert.False(context.Player.IsConnected);
+            Assert.Null(context.Store.LoadToken(ClientId));
+        }
+
+        [Fact]
         public async Task RestorePreparesPlaybackWithoutWaitingOrStartingMusic()
         {
             if (!OperatingSystem.IsWindows())
@@ -1279,6 +1341,7 @@ namespace KK.SFPlayer.Tests
 
         private sealed class FakeSpotifyHandler(Func<CapturedRequest, HttpResponseMessage> respond) : HttpMessageHandler
         {
+            public Func<CapturedRequest, CancellationToken, Task<HttpResponseMessage>>? AsyncResponse { get; set; }
             public List<CapturedRequest> Requests { get; } = [];
 
             protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -1289,7 +1352,7 @@ namespace KK.SFPlayer.Tests
                     request.RequestUri.Query,
                     request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
                 Requests.Add(captured);
-                return respond(captured);
+                return AsyncResponse is { } asyncResponse ? await asyncResponse(captured, cancellationToken) : respond(captured);
             }
         }
     }

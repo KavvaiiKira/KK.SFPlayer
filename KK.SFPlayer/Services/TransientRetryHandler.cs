@@ -24,6 +24,18 @@ namespace KK.SFPlayer.Services
             _attemptTimeout = attemptTimeout ?? TimeSpan.FromSeconds(5);
         }
 
+        internal static bool IsTransient(HttpStatusCode status) => status is
+            HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or
+            HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway or
+            HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+
+        internal static bool IsTransient(Exception exception) => exception switch
+        {
+            HttpRequestException request => request.StatusCode is null || IsTransient(request.StatusCode.Value),
+            OperationCanceledException or IOException => true,
+            _ => false,
+        };
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.Method != HttpMethod.Get)
@@ -71,17 +83,5 @@ namespace KK.SFPlayer.Services
                 await _delay(delay, cancellationToken).ConfigureAwait(false);
             }
         }
-
-        internal static bool IsTransient(HttpStatusCode status) => status is
-            HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or
-            HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway or
-            HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
-
-        internal static bool IsTransient(Exception exception) => exception switch
-        {
-            HttpRequestException request => request.StatusCode is null || IsTransient(request.StatusCode.Value),
-            OperationCanceledException or IOException => true,
-            _ => false,
-        };
     }
 }

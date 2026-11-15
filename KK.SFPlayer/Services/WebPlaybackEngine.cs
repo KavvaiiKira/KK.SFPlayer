@@ -21,6 +21,7 @@ namespace KK.SFPlayer.Services
         private CoreWebView2Environment? _environment;
         private readonly DispatcherTimer _brandingTimer = new() { Interval = TimeSpan.FromSeconds(AudioSessionConstants.RefreshIntervalSeconds) };
         private bool _isBranding;
+        private bool _resetRequired;
         private CancellationTokenSource? _session;
         private Task<string>? _connection;
         private Task? _initialization;
@@ -47,6 +48,103 @@ namespace KK.SFPlayer.Services
         public event EventHandler<PlaybackModes>? ModesChanged;
 
         public event EventHandler<PlaybackProgress>? ProgressChanged;
+
+        public void Seek(int positionMs)
+        {
+            if (_controller is null || _connection?.IsCompletedSuccessfully != true)
+            {
+                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
+            }
+
+            _controller.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "seek", position = Math.Max(0, positionMs) }));
+        }
+
+        public void NextTrack() => SendTransportCommand("next");
+
+        public void PreviousTrack() => SendTransportCommand("previous");
+
+        public void TogglePause() => SendTransportCommand("toggle");
+
+        public void SetVolume(double volume)
+        {
+            _volume = Math.Clamp(volume, 0, 1);
+            _controller?.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "volume", volume = _volume }));
+        }
+
+        public async Task<string> GetDeviceAsync(
+            Func<CancellationToken, Task<string>> getAccessToken,
+            CancellationToken cancellationToken)
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                return await Dispatcher.UIThread.InvokeAsync(() => GetDeviceAsync(getAccessToken, cancellationToken));
+            }
+
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!OperatingSystem.IsWindows())
+            {
+                throw new InvalidOperationException(StreamingConstants.Unsupported);
+            }
+
+            if (_connection is null || _connection.IsFaulted || _connection.IsCanceled)
+            {
+                if (_connection is not null || _resetRequired)
+                {
+                    ResetCore();
+                }
+
+                _getAccessToken = getAccessToken;
+                _ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _connection = ConnectAsync(_ready, cancellationToken);
+            }
+
+            return await _connection.WaitAsync(cancellationToken);
+        }
+
+        public async Task InitializeAsync(CancellationToken cancellationToken = default)
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => InitializeAsync(cancellationToken));
+                return;
+            }
+
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!OperatingSystem.IsWindows())
+            {
+                throw new InvalidOperationException(StreamingConstants.Unsupported);
+            }
+
+            if (_initialization is null || _initialization.IsFaulted || _initialization.IsCanceled)
+            {
+                _session?.Cancel();
+                _session?.Dispose();
+                _session = new CancellationTokenSource();
+                _pageReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _initialization = CreateBrowserAsync(_pageReady, _session.Token);
+            }
+
+            await _initialization.WaitAsync(cancellationToken);
+        }
+
+        public void Reset()
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(ResetCore);
+                return;
+            }
+
+            ResetCore();
+        }
+
+        public void Dispose()
+        {
+            _disposed = true;
+            Reset();
+        }
 
         private async void OnBrandingTick(object? sender, EventArgs e)
         {
@@ -76,22 +174,6 @@ namespace KK.SFPlayer.Services
             }
         }
 
-        public void Seek(int positionMs)
-        {
-            if (_controller is null || _connection?.IsCompletedSuccessfully != true)
-            {
-                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
-            }
-
-            _controller.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "seek", position = Math.Max(0, positionMs) }));
-        }
-
-        public void NextTrack() => SendTransportCommand("next");
-
-        public void PreviousTrack() => SendTransportCommand("previous");
-
-        public void TogglePause() => SendTransportCommand("toggle");
-
         private void SendTransportCommand(string command)
         {
             if (_controller is null || _connection?.IsCompletedSuccessfully != true)
@@ -100,43 +182,6 @@ namespace KK.SFPlayer.Services
             }
 
             _controller.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = command }));
-        }
-
-        public void SetVolume(double volume)
-        {
-            _volume = Math.Clamp(volume, 0, 1);
-            _controller?.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "volume", volume = _volume }));
-        }
-
-        public async Task<string> GetDeviceAsync(
-            Func<CancellationToken, Task<string>> getAccessToken,
-            CancellationToken cancellationToken)
-        {
-            if (!Dispatcher.UIThread.CheckAccess())
-            {
-                return await Dispatcher.UIThread.InvokeAsync(() => GetDeviceAsync(getAccessToken, cancellationToken));
-            }
-
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!OperatingSystem.IsWindows())
-            {
-                throw new InvalidOperationException(StreamingConstants.Unsupported);
-            }
-
-            if (_connection is null || _connection.IsFaulted || _connection.IsCanceled)
-            {
-                if (_connection is not null)
-                {
-                    ResetCore();
-                }
-
-                _getAccessToken = getAccessToken;
-                _ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _connection = ConnectAsync(_ready, cancellationToken);
-            }
-
-            return await _connection.WaitAsync(cancellationToken);
         }
 
         private async Task<string> ConnectAsync(TaskCompletionSource<string> ready, CancellationToken cancellationToken)
@@ -151,33 +196,6 @@ namespace KK.SFPlayer.Services
                 volume = _volume,
             }));
             return await ready.Task.WaitAsync(timeout.Token);
-        }
-
-        public async Task InitializeAsync(CancellationToken cancellationToken = default)
-        {
-            if (!Dispatcher.UIThread.CheckAccess())
-            {
-                await Dispatcher.UIThread.InvokeAsync(() => InitializeAsync(cancellationToken));
-                return;
-            }
-
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!OperatingSystem.IsWindows())
-            {
-                throw new InvalidOperationException(StreamingConstants.Unsupported);
-            }
-
-            if (_initialization is null || _initialization.IsFaulted || _initialization.IsCanceled)
-            {
-                _session?.Cancel();
-                _session?.Dispose();
-                _session = new CancellationTokenSource();
-                _pageReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                _initialization = CreateBrowserAsync(_pageReady, _session.Token);
-            }
-
-            await _initialization.WaitAsync(cancellationToken);
         }
 
         private async Task CreateBrowserAsync(TaskCompletionSource ready, CancellationToken cancellationToken)
@@ -346,6 +364,7 @@ namespace KK.SFPlayer.Services
 
         private void Fail(string message)
         {
+            _resetRequired = true;
             _pageReady?.TrySetException(new InvalidOperationException(message));
             if (_ready?.TrySetException(new InvalidOperationException(message)) != true)
             {
@@ -354,19 +373,9 @@ namespace KK.SFPlayer.Services
             }
         }
 
-        public void Reset()
-        {
-            if (!Dispatcher.UIThread.CheckAccess())
-            {
-                Dispatcher.UIThread.Post(ResetCore);
-                return;
-            }
-
-            ResetCore();
-        }
-
         private void ResetCore()
         {
+            _resetRequired = false;
             _brandingTimer.Stop();
             _environment = null;
             _session?.Cancel();
@@ -385,12 +394,6 @@ namespace KK.SFPlayer.Services
                 _controller.Close();
                 _controller = null;
             }
-        }
-
-        public void Dispose()
-        {
-            _disposed = true;
-            Reset();
         }
     }
 }

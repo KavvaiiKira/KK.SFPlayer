@@ -17,11 +17,11 @@ namespace KK.SFPlayer.Services
         private readonly string _directory;
         private readonly object _sync = new();
 
-        internal string DataDirectory => _directory;
-
         public SettingsStore(string? directory = null) => _directory = directory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             ApplicationConstants.AppName);
+
+        internal string DataDirectory => _directory;
 
         public AppSettings Load()
         {

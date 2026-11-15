@@ -19,8 +19,6 @@ namespace KK.SFPlayer.Services
         private readonly string _root = Path.Combine(dataDirectory, CacheDirectory);
         private readonly object _sync = new();
 
-        private string ScopeDirectory(string clientId) => Path.Combine(_root, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(clientId))));
-
         public PlaylistPage? LoadLibrary(string clientId)
         {
             var page = Read<PlaylistPage>(Path.Combine(ScopeDirectory(clientId), LibraryFile));
@@ -94,6 +92,8 @@ namespace KK.SFPlayer.Services
                 File.Delete(Path.Combine(ScopeDirectory(clientId), TrackPrefix + name + JsonExtension));
             }
         }
+
+        private string ScopeDirectory(string clientId) => Path.Combine(_root, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(clientId))));
 
         private T? Read<T>(string path) where T : class
         {

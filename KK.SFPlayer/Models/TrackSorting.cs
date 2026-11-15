@@ -6,7 +6,9 @@ namespace KK.SFPlayer.Models
 {
     internal static class TrackSorting
     {
-        public static IComparer<TrackInfo> For(int sort) => Comparer<TrackInfo>.Create((left, right) => Compare(sort, left, right));
+        public static IComparer<TrackInfo> For(int sort) =>
+            Comparer<TrackInfo>.Create((left, right) =>
+                Compare(sort, left, right));
 
         public static int Compare(int sort, TrackInfo left, TrackInfo right)
         {
@@ -24,6 +26,7 @@ namespace KK.SFPlayer.Models
                 5 => Nullable.Compare(left.AddedAt, right.AddedAt),
                 _ => 0,
             };
+
             return comparison == 0 ? left.Position.CompareTo(right.Position) : comparison;
         }
     }

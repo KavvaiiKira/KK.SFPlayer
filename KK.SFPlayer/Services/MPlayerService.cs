@@ -9,10 +9,10 @@ using System.Net;
 using System.Net.Http;
 using System.IO;
 using System.Security.Cryptography;
+using System.Security.Authentication;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using KK.SFPlayer.Models;
 using KK.SFPlayer.Models.Records;
 using SpotifyAPI.Web;
 using SpotifyAPI.Web.Http;
@@ -21,10 +21,9 @@ namespace KK.SFPlayer.Services
 {
     internal sealed class MPlayerService : IMPlayerService
     {
-        private const string ListenerPrefix = "http://127.0.0.1:5543/";
-        private const string CallbackPath = "/callback/";
         private const int PageSize = 50;
         private const int AuthorizationTimeoutSeconds = 180;
+        private static readonly Uri CallbackUri = new(AuthenticationConstants.RedirectUri);
 
         private readonly SettingsStore _settings;
         private readonly SpotifyClientConfig _configuration;
@@ -39,8 +38,9 @@ namespace KK.SFPlayer.Services
         private readonly ConcurrentDictionary<string, bool> _stale = new();
         private bool _disposed;
         private readonly SemaphoreSlim _tokenLock = new(1, 1);
+        private readonly object _sessionSync = new();
         private readonly SemaphoreSlim _indexLock = new(1, 1);
-        private readonly ConcurrentDictionary<string, TrackIndex> _trackIndexes = new();
+        private readonly ConcurrentDictionary<string, PlaylistTrackIndex> _trackIndexes = new();
         private int _indexGeneration;
         private PKCETokenResponse? _token;
         private string _clientId = string.Empty;
@@ -55,32 +55,6 @@ namespace KK.SFPlayer.Services
         private int _playbackSort;
         private bool _isPlaying;
         private readonly SemaphoreSlim _skipLock = new(1, 1);
-
-        private sealed class TrackIndex(IReadOnlyList<TrackInfo> tracks, string snapshotId = "")
-        {
-            public string SnapshotId { get; } = snapshotId;
-            public IReadOnlyList<TrackInfo> Tracks { get; } = tracks;
-
-            public ConcurrentDictionary<int, TrackInfo[]> Orders { get; } = new();
-
-            public long DurationMs { get; } = tracks.Sum(track => (long)track.DurationMs);
-        }
-
-        public void InvalidateTrackCache(string? playlistId = null)
-        {
-            lock (_trackIndexes)
-            {
-                Interlocked.Increment(ref _indexGeneration);
-                if (playlistId is null)
-                {
-                    _trackIndexes.Clear();
-                }
-                else
-                {
-                    _trackIndexes.TryRemove(playlistId, out _);
-                }
-            }
-        }
 
         public MPlayerService(SettingsStore settings, SpotifyClientConfig? configuration = null, ILocalPlaybackEngine? playback = null)
         {
@@ -115,6 +89,22 @@ namespace KK.SFPlayer.Services
 
         public event EventHandler<string>? CacheWarning;
 
+        public void InvalidateTrackCache(string? playlistId = null)
+        {
+            lock (_trackIndexes)
+            {
+                Interlocked.Increment(ref _indexGeneration);
+                if (playlistId is null)
+                {
+                    _trackIndexes.Clear();
+                }
+                else
+                {
+                    _trackIndexes.TryRemove(playlistId, out _);
+                }
+            }
+        }
+
         public PlaylistPage? GetCachedPlaylists() => IsConnected ? _cache.LoadLibrary(_clientId) : null;
 
         public async Task EnsurePlaylistFreshAsync(string playlistId, CancellationToken cancellationToken)
@@ -132,195 +122,11 @@ namespace KK.SFPlayer.Services
             RegisterSnapshot(playlistId, playlist.SnapshotId);
         }
 
-        private void RegisterSnapshot(string playlistId, string? snapshot)
-        {
-            if (string.IsNullOrEmpty(snapshot))
-            {
-                return;
-            }
-
-            _snapshots[playlistId] = snapshot;
-            if (_trackIndexes.TryGetValue(playlistId, out var cached) && cached.SnapshotId != snapshot)
-            {
-                _stale[playlistId] = true;
-                QueueRefresh(playlistId);
-            }
-        }
-
-        private void QueueRefresh(string playlistId, TrackPage? seed = null)
-        {
-            if (_disposed || (_refreshes.TryGetValue(playlistId, out var pending) && !pending.IsCompleted))
-            {
-                return;
-            }
-
-            var lifetime = _background.Token;
-            var task = RefreshIndexAsync(playlistId, seed, lifetime);
-            _refreshes[playlistId] = task;
-            _backgroundTasks.Add(task);
-            _ = ObserveBackgroundAsync(task, lifetime);
-        }
-
-        private async Task ObserveBackgroundAsync(Task task, CancellationToken lifetime)
-        {
-            try
-            {
-                await task;
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception)
-            {
-                if (!_disposed && !lifetime.IsCancellationRequested)
-                {
-                    CacheWarning?.Invoke(this, PlaylistConstants.CacheRefreshFailed);
-                }
-            }
-        }
-
-        private async Task RefreshIndexAsync(string playlistId, TrackPage? seed, CancellationToken cancellationToken)
-        {
-            var changed = _stale.ContainsKey(playlistId);
-            await _indexLock.WaitAsync(cancellationToken);
-            try
-            {
-                await BuildTrackIndexAsync(playlistId, seed, cancellationToken);
-                _stale.TryRemove(playlistId, out _);
-            }
-            finally
-            {
-                _indexLock.Release();
-            }
-
-            if (changed && !_disposed && !cancellationToken.IsCancellationRequested)
-            {
-                PlaylistChanged?.Invoke(this, playlistId);
-            }
-        }
-
-        private async Task ValidateOtherCachedPlaylistsAsync(IReadOnlySet<string> checkedIds, CancellationToken cancellationToken)
-        {
-            foreach (var id in _trackIndexes.Keys.Where(id => !checkedIds.Contains(id)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    await CheckPlaylistVersionAsync(id, cancellationToken);
-                }
-                catch (APIException exception) when (exception.Response?.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
-                {
-                    _trackIndexes.TryRemove(id, out _);
-                    _snapshots.TryRemove(id, out _);
-                    _stale.TryRemove(id, out _);
-                    TrySaveCache(() => _cache.RemoveTracks(_clientId, id));
-                }
-            }
-        }
-
-        internal async Task WaitForBackgroundWorkAsync()
-        {
-            while (true)
-            {
-                try
-                {
-                    await Task.WhenAll(_backgroundTasks.ToArray()).ConfigureAwait(false);
-                }
-                catch (Exception)
-                {
-                }
-
-                if (_backgroundTasks.All(task => task.IsCompleted))
-                {
-                    return;
-                }
-            }
-        }
-
-        private void OnProgressChanged(object? sender, PlaybackProgress progress)
-        {
-            if (progress.TrackUri is { } currentUri)
-            {
-                _playbackTrackUri = currentUri;
-            }
-
-            if (string.IsNullOrEmpty(progress.ContextUri) && progress.TrackUri is { } uri && _queueTrackUris.Contains(uri))
-            {
-                progress = progress with { ContextUri = _queuePlaylistUri };
-            }
-
-            ProgressChanged?.Invoke(this, progress);
-        }
-
         public void Seek(int positionMs) => _playback?.Seek(Math.Max(0, positionMs));
-
-        private void OnModesChanged(object? sender, PlaybackModes modes) => ModesChanged?.Invoke(this, modes);
 
         public Task NextTrackAsync(CancellationToken cancellationToken) => SkipTrackAsync(1, cancellationToken);
 
         public Task PreviousTrackAsync(CancellationToken cancellationToken) => SkipTrackAsync(-1, cancellationToken);
-
-        private async Task SkipTrackAsync(int direction, CancellationToken cancellationToken)
-        {
-            await _skipLock.WaitAsync(cancellationToken);
-            try
-            {
-                if (_shuffleRequested || _playbackPlaylistUri is not { } playlistUri)
-                {
-                    if (direction > 0)
-                    {
-                        _playback?.NextTrack();
-                    }
-                    else
-                    {
-                        _playback?.PreviousTrack();
-                    }
-                    return;
-                }
-
-                var playlistId = playlistUri.Split(':').Last();
-                var index = await GetTrackIndexAsync(playlistId, cancellationToken);
-                var ordered = index.Orders.GetOrAdd(_playbackSort, sort => index.Tracks.Order(TrackSorting.For(sort)).ToArray());
-                var current = Array.FindIndex(ordered, track => track.Position == _playbackPosition && track.Uri == _playbackTrackUri);
-                if (current < 0)
-                {
-                    current = Array.FindIndex(ordered, track => track.Uri == _playbackTrackUri);
-                }
-
-                if (current < 0 || ordered.Length == 0)
-                {
-                    return;
-                }
-
-                var next = current + direction;
-                if (next < 0 || next >= ordered.Length)
-                {
-                    if (_repeatRequested == 1)
-                    {
-                        next = (next + ordered.Length) % ordered.Length;
-                    }
-                    else
-                    {
-                        if (direction < 0)
-                        {
-                            Seek(0);
-                        }
-                        else if (_isPlaying)
-                        {
-                            _playback?.TogglePause();
-                        }
-                        return;
-                    }
-                }
-
-                var track = ordered[next];
-                await PlayAsync(playlistUri, track.Position, cancellationToken, track.Uri, _playbackSort);
-            }
-            finally
-            {
-                _skipLock.Release();
-            }
-        }
 
         public async Task SetShuffleAsync(bool enabled, CancellationToken cancellationToken)
         {
@@ -343,16 +149,6 @@ namespace KK.SFPlayer.Services
             var client = await GetClientAsync(cancellationToken);
             await client.Player.SetRepeat(new PlayerSetRepeatRequest(state) { DeviceId = device }, cancellationToken);
             _repeatRequested = mode;
-        }
-
-        private Task<string> GetLocalDeviceAsync(CancellationToken cancellationToken) => _playback is not null ?
-            _playback.GetDeviceAsync(GetAccessTokenAsync, cancellationToken) :
-            throw new InvalidOperationException(StreamingConstants.Unsupported);
-
-        private void OnPlayingChanged(object? sender, bool playing)
-        {
-            _isPlaying = playing;
-            PlayingChanged?.Invoke(this, playing);
         }
 
         public void TogglePause()
@@ -385,41 +181,10 @@ namespace KK.SFPlayer.Services
             await GetClientAsync(cancellationToken);
             foreach (var cached in _cache.LoadTracks(clientId))
             {
-                _trackIndexes[cached.PlaylistId] = new TrackIndex(cached.Tracks, cached.SnapshotId);
+                _trackIndexes[cached.PlaylistId] = new PlaylistTrackIndex(cached.Tracks, cached.SnapshotId);
             }
             PreparePlayback();
             return true;
-        }
-
-        private void PreparePlayback()
-        {
-            if (_playback is null || !OperatingSystem.IsWindows() || !HasStreamingConsent())
-            {
-                return;
-            }
-
-            _backgroundTasks.Add(PreparePlaybackAsync(_background.Token));
-        }
-
-        private bool HasStreamingConsent()
-        {
-            var scopes = (_token?.Scope ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return new[] { Scopes.Streaming, Scopes.UserReadEmail, Scopes.UserReadPrivate }.All(scopes.Contains);
-        }
-
-        private async Task PreparePlaybackAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                await _playback!.GetDeviceAsync(GetAccessTokenAsync, cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception)
-            {
-                // Preparation is optional; Play retries initialization and reports any failure.
-            }
         }
 
         public async Task ConnectAsync(string clientId, CancellationToken cancellationToken)
@@ -427,7 +192,7 @@ namespace KK.SFPlayer.Services
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(AuthorizationTimeoutSeconds));
             using var listener = new HttpListener();
-            listener.Prefixes.Add(ListenerPrefix);
+            listener.Prefixes.Add(CallbackUri.GetLeftPart(UriPartial.Authority) + "/");
             try
             {
                 listener.Start();
@@ -440,7 +205,7 @@ namespace KK.SFPlayer.Services
             using var registration = timeout.Token.Register(listener.Stop);
             var (verifier, challenge) = PKCEUtil.GenerateCodes();
             var state = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-            var request = new LoginRequest(new Uri(AuthenticationConstants.RedirectUri), clientId, LoginRequest.ResponseType.Code)
+            var request = new LoginRequest(CallbackUri, clientId, LoginRequest.ResponseType.Code)
             {
                 CodeChallenge = challenge,
                 CodeChallengeMethod = "S256",
@@ -456,7 +221,7 @@ namespace KK.SFPlayer.Services
                 {
                     var context = await listener.GetContextAsync().WaitAsync(timeout.Token);
                     var query = context.Request.QueryString;
-                    if (context.Request.Url?.AbsolutePath != CallbackPath || query["state"] != state)
+                    if (context.Request.Url?.AbsolutePath != CallbackUri.AbsolutePath || query["state"] != state)
                     {
                         context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
                         context.Response.Close();
@@ -476,7 +241,7 @@ namespace KK.SFPlayer.Services
                     }
 
                     var token = await _oauth.RequestToken(
-                        new PKCETokenRequest(clientId, code!, new Uri(AuthenticationConstants.RedirectUri), verifier),
+                        new PKCETokenRequest(clientId, code!, CallbackUri, verifier),
                         timeout.Token);
                     _cache.Clear(clientId);
                     _settings.SaveToken(clientId, token);
@@ -519,10 +284,13 @@ namespace KK.SFPlayer.Services
             _refreshes.Clear();
             InvalidateTrackCache();
             _playback?.Reset();
-            _client = null;
-            _token = null;
-            _clientId = string.Empty;
-            _settings.ClearToken();
+            lock (_sessionSync)
+            {
+                _client = null;
+                _token = null;
+                _clientId = string.Empty;
+                _settings.ClearToken();
+            }
         }
 
         public async Task<IReadOnlyList<PlaylistInfo>> GetPlaylistsAsync(CancellationToken cancellationToken)
@@ -562,33 +330,18 @@ namespace KK.SFPlayer.Services
 
         public async Task<IReadOnlyList<TrackInfo>> GetTracksAsync(string playlistId, CancellationToken cancellationToken)
         {
-            var client = await GetClientAsync(cancellationToken);
             var result = new List<TrackInfo>();
             var offset = 0;
             while (true)
             {
-                var page = await client.Playlists.GetPlaylistItems(
-                    playlistId,
-                    new PlaylistGetItemsRequest { Limit = PageSize, Offset = offset },
-                    cancellationToken);
-                var items = page.Items ?? [];
-                for (var index = 0; index < items.Count; index++)
-                {
-                    var track = MapTrack(items[index], offset + index);
-                    if (track is null)
-                    {
-                        continue;
-                    }
-
-                    result.Add(track);
-                }
-
-                if (string.IsNullOrEmpty(page.Next) || items.Count == 0)
+                var page = await GetTrackPageAsync(playlistId, offset, cancellationToken);
+                result.AddRange(page.Tracks);
+                if (!page.HasMore)
                 {
                     return result;
                 }
 
-                offset += items.Count;
+                offset = page.NextOffset;
             }
         }
 
@@ -691,7 +444,7 @@ namespace KK.SFPlayer.Services
             }
 
             var index = await GetTrackIndexAsync(playlistId, cancellationToken);
-            var ordered = index.Orders.GetOrAdd(sort, value => index.Tracks.Order(TrackSorting.For(value)).ToArray());
+            var ordered = index.GetOrder(sort);
             var tracks = (sort == 0 ? ordered.Where(track => track.Position >= offset) : ordered.Skip(offset))
                 .Take(PlaylistConstants.TrackPageSize).ToArray();
             var next = sort == 0 ? (tracks.LastOrDefault()?.Position + 1 ?? offset) : offset + tracks.Length;
@@ -699,7 +452,316 @@ namespace KK.SFPlayer.Services
             return new TrackPage(tracks, next, hasMore, ordered.Length, index.DurationMs);
         }
 
-        private async Task<TrackIndex> GetTrackIndexAsync(string playlistId, CancellationToken cancellationToken)
+        public async Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null, int sort = 0)
+        {
+            var playlistId = playlistUri.Split(':').Last();
+            await EnsurePlaylistFreshAsync(playlistId, cancellationToken);
+            if (trackUri is not null && _trackIndexes.TryGetValue(playlistId, out var index))
+            {
+                var track = index.Tracks.FirstOrDefault(item => item.Uri == trackUri && item.Position == position) ??
+                    index.Tracks.FirstOrDefault(item => item.Uri == trackUri);
+                if (track is null)
+                {
+                    throw new InvalidOperationException(PlaylistConstants.TrackRemoved);
+                }
+
+                position = track.Position;
+            }
+            if (_playback is null)
+            {
+                throw new InvalidOperationException(StreamingConstants.Unsupported);
+            }
+
+            await GetClientAsync(cancellationToken);
+            if (!HasStreamingConsent())
+            {
+                throw new InvalidOperationException(StreamingConstants.Reauthorize);
+            }
+
+            var deviceId = await _playback.GetDeviceAsync(GetAccessTokenAsync, cancellationToken);
+            var client = await GetClientAsync(cancellationToken);
+            TrackInfo[]? queue = null;
+            var queuePosition = position;
+            if (sort != 0)
+            {
+                var trackIndex = await GetTrackIndexAsync(playlistId, cancellationToken);
+                queue = trackIndex.GetOrder(sort);
+                queuePosition = position.HasValue ? Array.FindIndex(queue, track => track.Position == position.Value) : 0;
+                if (queue.Length == 0 || queuePosition < 0)
+                {
+                    throw new InvalidOperationException(PlaylistConstants.TrackRemoved);
+                }
+            }
+
+            try
+            {
+                await client.Player.ResumePlayback(new PlayerResumePlaybackRequest
+                {
+                    DeviceId = deviceId,
+                    ContextUri = queue is null ? playlistUri : null,
+                    Uris = queue?.Select(track => track.Uri).ToList(),
+                    OffsetParam = queuePosition.HasValue ? new PlayerResumePlaybackRequest.Offset { Position = queuePosition.Value } : null,
+                }, cancellationToken);
+                _queuePlaylistUri = queue is null ? null : playlistUri;
+                _queueTrackUris = queue is null ? [] : queue.Select(track => track.Uri).ToHashSet();
+                _playbackPlaylistUri = playlistUri;
+                _playbackSort = sort;
+                _playbackPosition = position;
+                _playbackTrackUri = trackUri ?? queue?.ElementAtOrDefault(queuePosition ?? 0)?.Uri;
+                await client.Player.SetShuffle(new PlayerShuffleRequest(_shuffleRequested) { DeviceId = deviceId }, cancellationToken);
+            }
+            catch (APIException exception) when (exception.Response?.StatusCode == HttpStatusCode.NotFound)
+            {
+                _playback.Reset();
+                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _background.Cancel();
+            if (_backgroundTasks.Any(task => !task.IsCompleted))
+            {
+                _ = DisposeAfterBackgroundAsync();
+            }
+            else
+            {
+                DisposeCore();
+            }
+        }
+
+        internal async Task WaitForBackgroundWorkAsync()
+        {
+            while (true)
+            {
+                try
+                {
+                    await Task.WhenAll(_backgroundTasks.ToArray()).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                }
+
+                if (_backgroundTasks.All(task => task.IsCompleted))
+                {
+                    return;
+                }
+            }
+        }
+
+        private void RegisterSnapshot(string playlistId, string? snapshot)
+        {
+            if (string.IsNullOrEmpty(snapshot))
+            {
+                return;
+            }
+
+            _snapshots[playlistId] = snapshot;
+            if (_trackIndexes.TryGetValue(playlistId, out var cached) && cached.SnapshotId != snapshot)
+            {
+                _stale[playlistId] = true;
+                QueueRefresh(playlistId);
+            }
+        }
+
+        private void QueueRefresh(string playlistId, TrackPage? seed = null)
+        {
+            if (_disposed || (_refreshes.TryGetValue(playlistId, out var pending) && !pending.IsCompleted))
+            {
+                return;
+            }
+
+            var lifetime = _background.Token;
+            var task = RefreshIndexAsync(playlistId, seed, lifetime);
+            _refreshes[playlistId] = task;
+            _backgroundTasks.Add(task);
+            _ = ObserveBackgroundAsync(task, lifetime);
+        }
+
+        private async Task ObserveBackgroundAsync(Task task, CancellationToken lifetime)
+        {
+            try
+            {
+                await task;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception)
+            {
+                if (!_disposed && !lifetime.IsCancellationRequested)
+                {
+                    CacheWarning?.Invoke(this, PlaylistConstants.CacheRefreshFailed);
+                }
+            }
+        }
+
+        private async Task RefreshIndexAsync(string playlistId, TrackPage? seed, CancellationToken cancellationToken)
+        {
+            var changed = _stale.ContainsKey(playlistId);
+            await _indexLock.WaitAsync(cancellationToken);
+            try
+            {
+                await BuildTrackIndexAsync(playlistId, seed, cancellationToken);
+                _stale.TryRemove(playlistId, out _);
+            }
+            finally
+            {
+                _indexLock.Release();
+            }
+
+            if (changed && !_disposed && !cancellationToken.IsCancellationRequested)
+            {
+                PlaylistChanged?.Invoke(this, playlistId);
+            }
+        }
+
+        private async Task ValidateOtherCachedPlaylistsAsync(IReadOnlySet<string> checkedIds, CancellationToken cancellationToken)
+        {
+            foreach (var id in _trackIndexes.Keys.Where(id => !checkedIds.Contains(id)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    await CheckPlaylistVersionAsync(id, cancellationToken);
+                }
+                catch (APIException exception) when (exception.Response?.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
+                {
+                    _trackIndexes.TryRemove(id, out _);
+                    _snapshots.TryRemove(id, out _);
+                    _stale.TryRemove(id, out _);
+                    TrySaveCache(() => _cache.RemoveTracks(_clientId, id));
+                }
+            }
+        }
+
+        private void OnProgressChanged(object? sender, PlaybackProgress progress)
+        {
+            if (progress.TrackUri is { } currentUri)
+            {
+                _playbackTrackUri = currentUri;
+            }
+
+            if (string.IsNullOrEmpty(progress.ContextUri) && progress.TrackUri is { } uri && _queueTrackUris.Contains(uri))
+            {
+                progress = progress with { ContextUri = _queuePlaylistUri };
+            }
+
+            ProgressChanged?.Invoke(this, progress);
+        }
+
+        private void OnModesChanged(object? sender, PlaybackModes modes) => ModesChanged?.Invoke(this, modes);
+
+        private async Task SkipTrackAsync(int direction, CancellationToken cancellationToken)
+        {
+            await _skipLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (_shuffleRequested || _playbackPlaylistUri is not { } playlistUri)
+                {
+                    if (direction > 0)
+                    {
+                        _playback?.NextTrack();
+                    }
+                    else
+                    {
+                        _playback?.PreviousTrack();
+                    }
+                    return;
+                }
+
+                var playlistId = playlistUri.Split(':').Last();
+                var index = await GetTrackIndexAsync(playlistId, cancellationToken);
+                var ordered = index.GetOrder(_playbackSort);
+                var current = Array.FindIndex(ordered, track => track.Position == _playbackPosition && track.Uri == _playbackTrackUri);
+                if (current < 0)
+                {
+                    current = Array.FindIndex(ordered, track => track.Uri == _playbackTrackUri);
+                }
+
+                if (current < 0 || ordered.Length == 0)
+                {
+                    return;
+                }
+
+                var next = current + direction;
+                if (next < 0 || next >= ordered.Length)
+                {
+                    if (_repeatRequested == 1)
+                    {
+                        next = (next + ordered.Length) % ordered.Length;
+                    }
+                    else
+                    {
+                        if (direction < 0)
+                        {
+                            Seek(0);
+                        }
+                        else if (_isPlaying)
+                        {
+                            _playback?.TogglePause();
+                        }
+                        return;
+                    }
+                }
+
+                var track = ordered[next];
+                await PlayAsync(playlistUri, track.Position, cancellationToken, track.Uri, _playbackSort);
+            }
+            finally
+            {
+                _skipLock.Release();
+            }
+        }
+
+        private Task<string> GetLocalDeviceAsync(CancellationToken cancellationToken) => _playback is not null ?
+            _playback.GetDeviceAsync(GetAccessTokenAsync, cancellationToken) :
+            throw new InvalidOperationException(StreamingConstants.Unsupported);
+
+        private void OnPlayingChanged(object? sender, bool playing)
+        {
+            _isPlaying = playing;
+            PlayingChanged?.Invoke(this, playing);
+        }
+
+        private void PreparePlayback()
+        {
+            if (_playback is null || !OperatingSystem.IsWindows() || !HasStreamingConsent())
+            {
+                return;
+            }
+
+            _backgroundTasks.Add(PreparePlaybackAsync(_background.Token));
+        }
+
+        private bool HasStreamingConsent()
+        {
+            var scopes = (_token?.Scope ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return new[] { Scopes.Streaming, Scopes.UserReadEmail, Scopes.UserReadPrivate }.All(scopes.Contains);
+        }
+
+        private async Task PreparePlaybackAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _playback!.GetDeviceAsync(GetAccessTokenAsync, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception)
+            {
+                // Preparation is optional; Play retries initialization and reports any failure.
+            }
+        }
+
+        private async Task<PlaylistTrackIndex> GetTrackIndexAsync(string playlistId, CancellationToken cancellationToken)
         {
             if (_trackIndexes.TryGetValue(playlistId, out var cached))
             {
@@ -722,7 +784,7 @@ namespace KK.SFPlayer.Services
             }
         }
 
-        private async Task<TrackIndex> BuildTrackIndexAsync(string playlistId, TrackPage? seed, CancellationToken cancellationToken)
+        private async Task<PlaylistTrackIndex> BuildTrackIndexAsync(string playlistId, TrackPage? seed, CancellationToken cancellationToken)
         {
             var generation = Volatile.Read(ref _indexGeneration);
             var snapshot = _snapshots.GetValueOrDefault(playlistId) ?? string.Empty;
@@ -760,7 +822,7 @@ namespace KK.SFPlayer.Services
                 throw new InvalidOperationException(PlaylistConstants.CacheRefreshFailed);
             }
 
-            var index = new TrackIndex(tracks, snapshot);
+            var index = new PlaylistTrackIndex(tracks, snapshot);
             lock (_trackIndexes)
             {
                 if (generation == Volatile.Read(ref _indexGeneration))
@@ -816,90 +878,6 @@ namespace KK.SFPlayer.Services
             return string.Format(CultureInfo.InvariantCulture, "{0}:{1:00}", (int)duration.TotalMinutes, duration.Seconds);
         }
 
-        public async Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null, int sort = 0)
-        {
-            var playlistId = playlistUri.Split(':').Last();
-            await EnsurePlaylistFreshAsync(playlistId, cancellationToken);
-            if (trackUri is not null && _trackIndexes.TryGetValue(playlistId, out var index))
-            {
-                var track = index.Tracks.FirstOrDefault(item => item.Uri == trackUri && item.Position == position) ??
-                    index.Tracks.FirstOrDefault(item => item.Uri == trackUri);
-                if (track is null)
-                {
-                    throw new InvalidOperationException(PlaylistConstants.TrackRemoved);
-                }
-
-                position = track.Position;
-            }
-            if (_playback is null)
-            {
-                throw new InvalidOperationException(StreamingConstants.Unsupported);
-            }
-
-            await GetClientAsync(cancellationToken);
-            if (!HasStreamingConsent())
-            {
-                throw new InvalidOperationException(StreamingConstants.Reauthorize);
-            }
-
-            var deviceId = await _playback.GetDeviceAsync(GetAccessTokenAsync, cancellationToken);
-            var client = await GetClientAsync(cancellationToken);
-            TrackInfo[]? queue = null;
-            var queuePosition = position;
-            if (sort != 0)
-            {
-                var trackIndex = await GetTrackIndexAsync(playlistId, cancellationToken);
-                queue = trackIndex.Orders.GetOrAdd(sort, value => trackIndex.Tracks.Order(TrackSorting.For(value)).ToArray());
-                queuePosition = position.HasValue ? Array.FindIndex(queue, track => track.Position == position.Value) : 0;
-                if (queue.Length == 0 || queuePosition < 0)
-                {
-                    throw new InvalidOperationException(PlaylistConstants.TrackRemoved);
-                }
-            }
-
-            try
-            {
-                await client.Player.ResumePlayback(new PlayerResumePlaybackRequest
-                {
-                    DeviceId = deviceId,
-                    ContextUri = queue is null ? playlistUri : null,
-                    Uris = queue?.Select(track => track.Uri).ToList(),
-                    OffsetParam = queuePosition.HasValue ? new PlayerResumePlaybackRequest.Offset { Position = queuePosition.Value } : null,
-                }, cancellationToken);
-                _queuePlaylistUri = queue is null ? null : playlistUri;
-                _queueTrackUris = queue is null ? [] : queue.Select(track => track.Uri).ToHashSet();
-                _playbackPlaylistUri = playlistUri;
-                _playbackSort = sort;
-                _playbackPosition = position;
-                _playbackTrackUri = trackUri ?? queue?.ElementAtOrDefault(queuePosition ?? 0)?.Uri;
-                await client.Player.SetShuffle(new PlayerShuffleRequest(_shuffleRequested) { DeviceId = deviceId }, cancellationToken);
-            }
-            catch (APIException exception) when (exception.Response?.StatusCode == HttpStatusCode.NotFound)
-            {
-                _playback.Reset();
-                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _background.Cancel();
-            if (_backgroundTasks.Any(task => !task.IsCompleted))
-            {
-                _ = DisposeAfterBackgroundAsync();
-            }
-            else
-            {
-                DisposeCore();
-            }
-        }
-
         private async Task DisposeAfterBackgroundAsync()
         {
             await WaitForBackgroundWorkAsync().ConfigureAwait(false);
@@ -926,7 +904,10 @@ namespace KK.SFPlayer.Services
         private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken)
         {
             await GetClientAsync(cancellationToken);
-            return _token!.AccessToken;
+            lock (_sessionSync)
+            {
+                return _token?.AccessToken ?? throw new InvalidOperationException(AuthenticationConstants.NotConnected);
+            }
         }
 
         private async Task<SpotifyClient> GetClientAsync(CancellationToken cancellationToken)
@@ -934,32 +915,58 @@ namespace KK.SFPlayer.Services
             await _tokenLock.WaitAsync(cancellationToken);
             try
             {
-                if (_token is null)
+                var token = _token;
+                var clientId = _clientId;
+                if (token is null || _disposed)
                 {
                     throw new InvalidOperationException(AuthenticationConstants.NotConnected);
                 }
 
-                if (_token.IsExpired)
+                if (token.IsExpired)
                 {
-                    var refreshed = await _oauth.RequestToken(
-                        new PKCETokenRefreshRequest(_clientId, _token.RefreshToken),
-                        cancellationToken);
+                    PKCETokenResponse refreshed;
+                    try
+                    {
+                        refreshed = await _oauth.RequestToken(
+                            new PKCETokenRefreshRequest(clientId, token.RefreshToken),
+                            cancellationToken);
+                    }
+                    catch (APIException exception) when (exception.Response?.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
+                    {
+                        throw new AuthenticationException(AuthenticationConstants.Reconnect, exception);
+                    }
                     if (string.IsNullOrEmpty(refreshed.RefreshToken))
                     {
-                        refreshed.RefreshToken = _token.RefreshToken;
+                        refreshed.RefreshToken = token.RefreshToken;
                     }
 
                     if (string.IsNullOrEmpty(refreshed.Scope))
                     {
-                        refreshed.Scope = _token.Scope;
+                        refreshed.Scope = token.Scope;
                     }
 
-                    _settings.SaveToken(_clientId, refreshed);
-                    _token = refreshed;
-                    _client = new SpotifyClient(_configuration.WithToken(refreshed.AccessToken));
+                    lock (_sessionSync)
+                    {
+                        if (_disposed || !ReferenceEquals(_token, token) || _clientId != clientId)
+                        {
+                            throw new InvalidOperationException(AuthenticationConstants.NotConnected);
+                        }
+
+                        _settings.SaveToken(clientId, refreshed);
+                        _token = refreshed;
+                        _client = new SpotifyClient(_configuration.WithToken(refreshed.AccessToken));
+                    }
                 }
 
-                return _client ??= new SpotifyClient(_configuration.WithToken(_token.AccessToken));
+                lock (_sessionSync)
+                {
+                    if (_token is null || _disposed)
+                    {
+                        throw new InvalidOperationException(AuthenticationConstants.NotConnected);
+                    }
+
+                    return _client ??= new SpotifyClient(_configuration.WithToken(_token.AccessToken));
+                }
             }
             finally
             {

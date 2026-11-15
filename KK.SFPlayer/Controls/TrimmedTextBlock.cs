@@ -12,6 +12,7 @@ namespace KK.SFPlayer.Controls
         protected override void OnPointerEntered(PointerEventArgs e)
         {
             ToolTip.SetTip(this, TextLayout.TextLines.Any(line => line.HasCollapsed) ? Text : null);
+
             base.OnPointerEntered(e);
         }
     }

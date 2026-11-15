@@ -66,7 +66,11 @@ namespace KK.SFPlayer.ViewModels
 
         internal Task LoadingTask { get; private set; } = Task.CompletedTask;
 
-        internal TrackInfo? FirstTrack => _knownTracks.Values.Order(TrackSorting.For(_sort)).FirstOrDefault();
+        public void Dispose()
+        {
+            _disposed = true;
+            _request?.Cancel();
+        }
 
         internal void SetSort(int sort)
         {
@@ -115,12 +119,6 @@ namespace KK.SFPlayer.ViewModels
             UpdatePreview();
         }
 
-        private void UpdatePreview()
-        {
-            Tracks = _knownTracks.Values.Order(TrackSorting.For(_sort)).Take(PlaylistConstants.PreviewTrackLimit).ToArray();
-            IsEmpty = _isLoaded && Tracks.Count == 0;
-        }
-
         internal void SetVisible(bool visible)
         {
             if (_isVisible == visible)
@@ -148,6 +146,12 @@ namespace KK.SFPlayer.ViewModels
             }
 
             return LoadingTask = LoadAsync();
+        }
+
+        private void UpdatePreview()
+        {
+            Tracks = _knownTracks.Values.Order(TrackSorting.For(_sort)).Take(PlaylistConstants.PreviewTrackLimit).ToArray();
+            IsEmpty = _isLoaded && Tracks.Count == 0;
         }
 
         [RelayCommand(CanExecute = nameof(CanRetry))]
@@ -204,12 +208,6 @@ namespace KK.SFPlayer.ViewModels
                     _ = EnsureLoadedAsync();
                 }
             }
-        }
-
-        public void Dispose()
-        {
-            _disposed = true;
-            _request?.Cancel();
         }
     }
 }

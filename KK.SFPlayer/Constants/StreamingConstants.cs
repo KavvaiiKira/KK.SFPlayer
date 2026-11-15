@@ -2,8 +2,8 @@ namespace KK.SFPlayer.Constants
 {
     public static class StreamingConstants
     {
-        public const string Host = "kk-sfplayer.test";
-        public const string Page = "https://kk-sfplayer.test/index.html";
+        public const string Host = "kk-sfplayer";
+        public const string Page = "https://" + Host + "/index.html";
         public const string ProfileDirectory = "PlaybackProfile";
         public const string Unsupported = "In-app playback requires Windows and Microsoft Edge WebView2 Runtime.";
         public const string RuntimeMissing = "Install Microsoft Edge WebView2 Runtime to play music in this app.";
@@ -16,7 +16,6 @@ namespace KK.SFPlayer.Constants
         public const string Play = "Play";
         public const string Resume = "Resume";
         public const string Volume = "Volume";
-        public const int VolumePopupCloseDelayMilliseconds = 200;
         public const string Previous = "Previous track";
         public const string Next = "Next track";
         public const string ShuffleOn = "Shuffle: on";
@@ -28,6 +27,7 @@ namespace KK.SFPlayer.Constants
         public const string Seek = "Seek";
         public const string RemainingTimeFormat = "-{0}";
         public const double DefaultVolume = 0.1;
+        public const int VolumePopupCloseDelayMilliseconds = 200;
         public const int ConnectionTimeoutSeconds = 40;
         public const int ModeConfirmationTimeoutSeconds = 5;
     }

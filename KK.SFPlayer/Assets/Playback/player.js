@@ -7,7 +7,7 @@
     let tokenRequest = 0;
     let volume = 0.1;
     let progressTimer;
-    let seekGeneration = 0;
+    let stateGeneration = 0;
     let audioContext;
     let silentSource;
     const callbacks = new Map();
@@ -46,9 +46,9 @@
     }
 
     function refreshState() {
-        const generation = seekGeneration;
+        const generation = stateGeneration;
         return player.getCurrentState().then(state => {
-            if (generation === seekGeneration) publishState(state);
+            if (generation === stateGeneration) publishState(state);
         }).catch(() => {});
     }
 
@@ -73,7 +73,10 @@
             send({ type: "ready", deviceId: device_id });
         });
         player.addListener("not_ready", () => send({ type: "error", code: "not_ready" }));
-        player.addListener("player_state_changed", publishState);
+        player.addListener("player_state_changed", state => {
+            stateGeneration++;
+            publishState(state);
+        });
         player.addListener("autoplay_failed", () => send({ type: "error", code: "playback_error" }));
         player.connect().then(connected => {
             if (!connected) send({ type: "error", code: "initialization_error" });
@@ -100,7 +103,7 @@
         } else if (data.type === "previous" && player) {
             player.previousTrack().catch(() => send({ type: "error", code: "playback_error" }));
         } else if (data.type === "seek" && player) {
-            seekGeneration++;
+            stateGeneration++;
             player.seek(Math.max(0, Math.floor(Number(data.position) || 0)))
                 .then(refreshState).catch(() => send({ type: "error", code: "playback_error" }));
         } else if (data.type === "volume") {
@@ -109,6 +112,7 @@
         }
     });
     window.addEventListener("pagehide", () => {
+        stateGeneration++;
         callbacks.clear();
         clearInterval(progressTimer);
         if (player) player.disconnect();

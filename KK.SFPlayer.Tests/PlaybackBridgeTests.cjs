@@ -228,3 +228,21 @@ test("progress polls local SDK state, supports seek and stops polling when close
     bridge.close();
     assert.equal(bridge.timers.size, 0);
 });
+
+test("a delayed progress poll cannot overwrite a newer track event", async () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    const player = bridge.players[0];
+    player.listeners.ready({ device_id: "local-device" });
+    let completePoll;
+    player.getCurrentState = () => new Promise(resolve => { completePoll = resolve; });
+    const pending = [...bridge.timers][0]();
+    player.listeners.player_state_changed({
+        paused: false, position: 0, duration: 180000,
+        track_window: { current_track: { uri: "spotify:track:new" } }
+    });
+    completePoll(player.state);
+    await pending;
+    assert.equal(bridge.messages.at(-1).trackUri, "spotify:track:new");
+});

@@ -40,7 +40,10 @@ namespace KK.SFPlayer.Tests
                         is_local = index == 7,
                         item = index == 13 ? null : new
                         {
-                            type = "track", uri = $"spotify:track:{index}", name = $"Track {index}", duration_ms = 180000,
+                            type = "track",
+                            uri = $"spotify:track:{index}",
+                            name = $"Track {index}",
+                            duration_ms = 180000,
                             artists = new[] { new { name = "Artist" } },
                         },
                     }),
@@ -244,7 +247,10 @@ namespace KK.SFPlayer.Tests
                 added_at = "2026-01-01T00:00:00Z",
                 item = new
                 {
-                    type = "track", uri = $"spotify:track:{name}", name, duration_ms = 180000,
+                    type = "track",
+                    uri = $"spotify:track:{name}",
+                    name,
+                    duration_ms = 180000,
                     artists = new[] { new { name = "Artist" } },
                 },
             }),

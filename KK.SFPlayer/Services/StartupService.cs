@@ -8,7 +8,6 @@ namespace KK.SFPlayer.Services
     internal sealed class StartupService : IStartupService
     {
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string ExecutableName = "KK.SFPlayer.exe";
 
         public bool IsSupported => OperatingSystem.IsWindows();
 
@@ -41,7 +40,7 @@ namespace KK.SFPlayer.Services
             using var key = Registry.CurrentUser.CreateSubKey(RunKey, true);
             if (enabled)
             {
-                var executable = Path.Combine(AppContext.BaseDirectory, ExecutableName);
+                var executable = Path.Combine(AppContext.BaseDirectory, ApplicationConstants.ExecutableFileName);
                 if (!File.Exists(executable))
                 {
                     throw new InvalidOperationException(SettingsConstants.StartupError);
