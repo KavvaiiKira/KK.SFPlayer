@@ -28,9 +28,9 @@ namespace KK.SFPlayer.Services
 
         void Seek(int positionMs);
 
-        void NextTrack();
+        Task NextTrackAsync(CancellationToken cancellationToken);
 
-        void PreviousTrack();
+        Task PreviousTrackAsync(CancellationToken cancellationToken);
 
         Task SetShuffleAsync(bool enabled, CancellationToken cancellationToken);
 
@@ -60,6 +60,6 @@ namespace KK.SFPlayer.Services
 
         Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken);
 
-        Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null);
+        Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null, int sort = 0);
     }
 }

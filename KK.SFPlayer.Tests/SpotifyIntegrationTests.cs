@@ -51,7 +51,7 @@ namespace KK.SFPlayer.Tests
                 return;
             }
 
-            using var context = new TestContext(request => request.Path == "/v1/me/player/play" ?
+            using var context = new TestContext(request => request.Path is "/v1/me/player/play" or "/v1/me/player/shuffle" ?
                 new HttpResponseMessage(HttpStatusCode.NoContent) :
                 throw new InvalidOperationException("Unexpected Spotify request."));
             context.SeedToken(expired: false);
@@ -67,10 +67,14 @@ namespace KK.SFPlayer.Tests
         [Theory]
         [InlineData(false, 0, 0)]
         [InlineData(false, 1, 1)]
+        [InlineData(false, 2, 0)]
+        [InlineData(false, 3, 0)]
         [InlineData(false, 4, 1)]
         [InlineData(false, 5, 0)]
         [InlineData(true, 0, 0)]
         [InlineData(true, 1, 1)]
+        [InlineData(true, 2, 0)]
+        [InlineData(true, 3, 0)]
         [InlineData(true, 4, 0)]
         [InlineData(true, 5, 1)]
         public async Task StartupPlayUsesCurrentScreenAndPersistedGlobalSort(bool openPlaylist, int sort, int expectedPosition)
@@ -109,7 +113,7 @@ namespace KK.SFPlayer.Tests
                     }));
                 }
 
-                if (request.Path == "/v1/me/player/play")
+                if (request.Path is "/v1/me/player/play" or "/v1/me/player/shuffle")
                 {
                     return new HttpResponseMessage(HttpStatusCode.NoContent);
                 }
@@ -130,9 +134,36 @@ namespace KK.SFPlayer.Tests
 
             var request = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
             using var body = JsonDocument.Parse(request.Body);
-            Assert.Equal(openPlaylist ? "spotify:playlist:second" : "spotify:playlist:first", body.RootElement.GetProperty("context_uri").GetString());
-            Assert.Equal(expectedPosition, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            if (sort == 0)
+            {
+                Assert.Equal(openPlaylist ? "spotify:playlist:second" : "spotify:playlist:first", body.RootElement.GetProperty("context_uri").GetString());
+                Assert.Equal(expectedPosition, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            }
+            else
+            {
+                var uris = body.RootElement.GetProperty("uris").EnumerateArray().Select(item => item.GetString()).ToArray();
+                Assert.Equal(new[] { $"spotify:track:{expectedPosition}", $"spotify:track:{1 - expectedPosition}" }, uris);
+                Assert.Equal(0, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            }
             Assert.True(viewModel.HasPlayback);
+            await viewModel.NextTrackCommand.ExecuteAsync(null);
+            using var nextBody = JsonDocument.Parse(context.Handler.Requests.Last(item => item.Path == "/v1/me/player/play").Body);
+            if (sort == 0)
+            {
+                Assert.Equal(1, nextBody.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+                Assert.Equal(openPlaylist ? "spotify:playlist:second" : "spotify:playlist:first", nextBody.RootElement.GetProperty("context_uri").GetString());
+            }
+            else
+            {
+                var offset = nextBody.RootElement.GetProperty("offset").GetProperty("position").GetInt32();
+                Assert.Equal(1, offset);
+                Assert.Equal($"spotify:track:{1 - expectedPosition}", nextBody.RootElement.GetProperty("uris")[offset].GetString());
+            }
+
+            Assert.Equal(0, context.Playback.NextCount);
+            var requestsBeforeEnd = context.Handler.Requests.Count;
+            await viewModel.NextTrackCommand.ExecuteAsync(null);
+            Assert.Equal(requestsBeforeEnd, context.Handler.Requests.Count);
         }
 
         [Fact]
@@ -743,7 +774,7 @@ namespace KK.SFPlayer.Tests
                 "/v1/playlists/demo/items" when request.Query.Contains("offset=0", StringComparison.Ordinal) => Json(
                     "{\"items\":[{\"item\":" + TrackJson + "},{\"item\":null},{\"item\":{\"type\":\"episode\",\"uri\":\"spotify:episode:one\"}},{\"is_local\":true,\"item\":" + TrackJson + "}],\"next\":\"https://api.spotify.com/next\"}"),
                 "/v1/playlists/demo/items" => Json("{\"items\":[{\"track\":" + TrackJson + "}],\"next\":null}"),
-                "/v1/me/player/play" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             });
             context.SeedToken();
@@ -758,7 +789,7 @@ namespace KK.SFPlayer.Tests
             Assert.Equal("https://example.com/cover.png", tracks[0].ImageUrl);
 
             await context.Player.PlayAsync("spotify:playlist:demo", tracks[1].Position, CancellationToken.None);
-            var playRequest = context.Handler.Requests.FindLast(request => request.Method == HttpMethod.Put)!;
+            var playRequest = context.Handler.Requests.FindLast(request => request.Path == "/v1/me/player/play")!;
             using var body = JsonDocument.Parse(playRequest.Body);
             Assert.Contains("device_id=local-device", playRequest.Query);
             Assert.Equal("new-access", context.Playback.Token);
@@ -818,7 +849,7 @@ namespace KK.SFPlayer.Tests
             {
                 "/v1/me/playlists" => Json("""{"items":[{"id":"one","uri":"spotify:playlist:one","name":"One"},{"id":"two","uri":"spotify:playlist:two","name":"Two"}],"next":null}"""),
                 "/v1/playlists/one/items" or "/v1/playlists/two/items" => Json(items),
-                "/v1/me/player/play" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             };
 
@@ -832,7 +863,31 @@ namespace KK.SFPlayer.Tests
             Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
             Assert.Equal("Alpha", viewModel.PlaylistCards[0].Tracks[0].Name);
             await viewModel.PlayPlaylistCommand.ExecuteAsync(null);
-            using (var body = JsonDocument.Parse(context.Handler.Requests.Last().Body))
+            using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
+            {
+                Assert.Equal(0, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+                Assert.Equal("spotify:track:1", body.RootElement.GetProperty("uris")[0].GetString());
+                Assert.Equal(new[] { "spotify:track:1", "spotify:track:2", "spotify:track:0" },
+                    body.RootElement.GetProperty("uris").EnumerateArray().Select(item => item.GetString()));
+            }
+
+            await viewModel.PlayTrackCommand.ExecuteAsync(viewModel.SortedTracks[1]);
+            using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
+            {
+                Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            }
+
+            context.Playback.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:2"));
+            Assert.Equal("spotify:playlist:one", viewModel.CurrentPlaylistUri);
+            await viewModel.NextTrackCommand.ExecuteAsync(null);
+            using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
+            {
+                Assert.Equal(2, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            }
+
+            Assert.Equal(0, context.Playback.NextCount);
+            await viewModel.PreviousTrackCommand.ExecuteAsync(null);
+            using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             }
@@ -854,9 +909,10 @@ namespace KK.SFPlayer.Tests
             Assert.Equal("Alpha", restarted.PlaylistCards[0].Tracks[0].Name);
             Assert.Contains("limit=50", restartedContext.Handler.Requests.Last().Query);
             await restarted.PlayCardCommand.ExecuteAsync(restarted.Playlists[0]);
-            using (var body = JsonDocument.Parse(restartedContext.Handler.Requests.Last().Body))
+            using (var body = JsonDocument.Parse(restartedContext.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
-                Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+                Assert.Equal(0, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+                Assert.Equal("spotify:track:1", body.RootElement.GetProperty("uris")[0].GetString());
             }
 
             await restarted.OpenPlaylistCommand.ExecuteAsync(restarted.Playlists[0]);
@@ -929,6 +985,7 @@ namespace KK.SFPlayer.Tests
                 Assert.Contains("device_id=local-device", context.Handler.Requests.Last().Query);
             }
 
+            context.Playback.PublishModes(false, 0);
             context.Playback.PublishModes(false, 2);
             Assert.False(viewModel.ShuffleEnabled);
             Assert.True(viewModel.IsRepeatOne);
@@ -957,7 +1014,7 @@ namespace KK.SFPlayer.Tests
             {
                 "/v1/me/playlists" => Json("""{"items":[{"id":"demo","uri":"spotify:playlist:demo","name":"Demo"}],"next":null}"""),
                 "/v1/playlists/demo/items" => Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}"),
-                "/v1/me/player/play" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             });
             context.SeedToken(false);
@@ -1000,8 +1057,10 @@ namespace KK.SFPlayer.Tests
             context.Playback.Ready.SetResult("embedded-device");
             await play;
 
-            var request = Assert.Single(context.Handler.Requests);
+            var request = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
             Assert.Contains("device_id=embedded-device", request.Query);
+            var shuffleRequest = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/shuffle");
+            Assert.Contains("state=false", shuffleRequest.Query);
             using var body = JsonDocument.Parse(request.Body);
             Assert.Equal(7, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             context.Player.Disconnect();

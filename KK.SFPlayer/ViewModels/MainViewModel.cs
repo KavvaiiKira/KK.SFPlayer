@@ -35,6 +35,11 @@ namespace KK.SFPlayer.ViewModels
         private readonly List<Task> _retiredPreviewLoads = [];
         private PlaybackProgress _progress = new(0, 0, false, null);
         private string? _seekTrackUri;
+        private readonly SemaphoreSlim _modeGate = new(1, 1);
+        private PlaybackModes _appliedModes = new(false, 0);
+        private PlaybackModes? _pendingModes;
+        private DateTime _modeConfirmationDeadline;
+        private int _modeRevision;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ElapsedTime))]
@@ -149,8 +154,6 @@ namespace KK.SFPlayer.ViewModels
         private int _repeatMode;
 
         [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(ToggleShuffleCommand))]
-        [NotifyCanExecuteChangedFor(nameof(CycleRepeatCommand))]
         private bool _isChangingMode;
 
         public string ShuffleTooltip => ShuffleEnabled ? StreamingConstants.ShuffleOn : StreamingConstants.ShuffleOff;
@@ -168,7 +171,7 @@ namespace KK.SFPlayer.ViewModels
 
         public bool CanUseTransport => IsConnected && HasPlayback;
 
-        public bool CanChangeModes => CanUseTransport && !IsChangingMode;
+        public bool CanChangeModes => CanUseTransport;
 
         partial void OnHasPlaybackChanged(bool value) => UpdateTransportCommands();
 
@@ -182,15 +185,43 @@ namespace KK.SFPlayer.ViewModels
 
         private void OnModesChanged(object? sender, PlaybackModes modes)
         {
+            if (_pendingModes is { } pending && (IsChangingMode || DateTime.UtcNow < _modeConfirmationDeadline))
+            {
+                if (modes == pending && !IsChangingMode)
+                {
+                    _appliedModes = modes;
+                    _pendingModes = null;
+                }
+
+                return;
+            }
+
+            _pendingModes = null;
+            _appliedModes = modes;
             ShuffleEnabled = modes.Shuffle;
             RepeatMode = modes.RepeatMode;
         }
 
         [RelayCommand(CanExecute = nameof(CanUseTransport))]
-        private void PreviousTrack() => SendTransport(_player.PreviousTrack);
+        private Task PreviousTrackAsync() => SendTransportAsync(_player.PreviousTrackAsync);
 
         [RelayCommand(CanExecute = nameof(CanUseTransport))]
-        private void NextTrack() => SendTransport(_player.NextTrack);
+        private Task NextTrackAsync() => SendTransportAsync(_player.NextTrackAsync);
+
+        private async Task SendTransportAsync(Func<CancellationToken, Task> action)
+        {
+            try
+            {
+                await action(_lifetime.Token);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+            }
+        }
 
         private void SendTransport(Action action)
         {
@@ -204,51 +235,82 @@ namespace KK.SFPlayer.ViewModels
             }
         }
 
-        [RelayCommand(CanExecute = nameof(CanChangeModes))]
-        private Task ToggleShuffleAsync() => ChangeModeAsync(async cancellationToken =>
+        [RelayCommand(CanExecute = nameof(CanChangeModes), AllowConcurrentExecutions = true)]
+        private Task ToggleShuffleAsync()
         {
             var enabled = !ShuffleEnabled;
-            if (enabled && RepeatMode != 0)
-            {
-                await _player.SetRepeatAsync(0, cancellationToken);
-                RepeatMode = 0;
-            }
+            return ChangeModeAsync(new PlaybackModes(enabled, enabled ? 0 : RepeatMode));
+        }
 
-            await _player.SetShuffleAsync(enabled, cancellationToken);
-            ShuffleEnabled = enabled;
-        });
-
-        [RelayCommand(CanExecute = nameof(CanChangeModes))]
-        private Task CycleRepeatAsync() => ChangeModeAsync(async cancellationToken =>
+        [RelayCommand(CanExecute = nameof(CanChangeModes), AllowConcurrentExecutions = true)]
+        private Task CycleRepeatAsync()
         {
             var mode = (RepeatMode + 1) % 3;
-            if (mode != 0 && ShuffleEnabled)
-            {
-                await _player.SetShuffleAsync(false, cancellationToken);
-                ShuffleEnabled = false;
-            }
+            return ChangeModeAsync(new PlaybackModes(mode == 0 && ShuffleEnabled, mode));
+        }
 
-            await _player.SetRepeatAsync(mode, cancellationToken);
-            RepeatMode = mode;
-        });
-
-        private async Task ChangeModeAsync(Func<CancellationToken, Task> action)
+        private async Task ChangeModeAsync(PlaybackModes requested)
         {
-            IsChangingMode = true;
+            var revision = ++_modeRevision;
+            var cancellationToken = _lifetime.Token;
+            _pendingModes = requested;
+            _modeConfirmationDeadline = DateTime.MaxValue;
+            ShuffleEnabled = requested.Shuffle;
+            RepeatMode = requested.RepeatMode;
+            var entered = false;
             try
             {
-                await action(_lifetime.Token);
+                await _modeGate.WaitAsync(cancellationToken);
+                entered = true;
+                IsChangingMode = true;
+                if (requested.Shuffle)
+                {
+                    if (_appliedModes.RepeatMode != 0)
+                    {
+                        await _player.SetRepeatAsync(0, cancellationToken);
+                        _appliedModes = _appliedModes with { RepeatMode = 0 };
+                    }
+
+                    await _player.SetShuffleAsync(true, cancellationToken);
+                }
+                else
+                {
+                    if (_appliedModes.Shuffle)
+                    {
+                        await _player.SetShuffleAsync(false, cancellationToken);
+                        _appliedModes = _appliedModes with { Shuffle = false };
+                    }
+
+                    await _player.SetRepeatAsync(requested.RepeatMode, cancellationToken);
+                }
+
+                _appliedModes = requested;
+                if (revision == _modeRevision)
+                {
+                    _modeConfirmationDeadline = DateTime.UtcNow.AddSeconds(StreamingConstants.ModeConfirmationTimeoutSeconds);
+                }
             }
-            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
             }
             catch (Exception exception)
             {
+                if (revision == _modeRevision)
+                {
+                    _pendingModes = null;
+                    ShuffleEnabled = _appliedModes.Shuffle;
+                    RepeatMode = _appliedModes.RepeatMode;
+                }
+
                 Status = ErrorMessages.From(exception);
             }
             finally
             {
-                IsChangingMode = false;
+                if (entered)
+                {
+                    IsChangingMode = false;
+                    _modeGate.Release();
+                }
             }
         }
 
@@ -845,7 +907,7 @@ namespace KK.SFPlayer.ViewModels
                     throw new InvalidOperationException(PlaybackConstants.NoTracks);
                 }
 
-                await _player.PlayAsync(playlist.Uri, first.Position, cancellationToken, first.Uri);
+                await _player.PlayAsync(playlist.Uri, first.Position, cancellationToken, first.Uri, GetPlaylistSort(playlist.Id));
                 HasPlayback = true;
                 IsPlaying = true;
                 Status = string.Empty;
@@ -886,6 +948,9 @@ namespace KK.SFPlayer.ViewModels
             UpdateTransportCommands();
             if (!value)
             {
+                _pendingModes = null;
+                _appliedModes = new PlaybackModes(false, 0);
+                _modeRevision++;
                 HasPlayback = false;
                 IsPlaying = false;
                 ShuffleEnabled = false;
@@ -920,7 +985,7 @@ namespace KK.SFPlayer.ViewModels
                     throw new InvalidOperationException(PlaybackConstants.NoTracks);
                 }
 
-                await _player.PlayAsync(playlist.Uri, track.Position, cancellationToken, track.Uri);
+                await _player.PlayAsync(playlist.Uri, track.Position, cancellationToken, track.Uri, SelectedSort);
                 HasPlayback = true;
                 IsPlaying = true;
                 Status = string.Empty;
@@ -985,13 +1050,20 @@ namespace KK.SFPlayer.ViewModels
 
             _disposePlayerScheduled = true;
             var pending = _retiredPreviewLoads.Concat(PlaylistCards.Select(card => card.LoadingTask))
-                .Concat(new[] { ToggleShuffleCommand.ExecutionTask, CycleRepeatCommand.ExecutionTask }.OfType<Task>()).ToArray();
+                .Concat(new[]
+                {
+                    ToggleShuffleCommand.ExecutionTask,
+                    CycleRepeatCommand.ExecutionTask,
+                    NextTrackCommand.ExecutionTask,
+                    PreviousTrackCommand.ExecutionTask,
+                }.OfType<Task>()).ToArray();
             _ = DisposePlayerAsync(pending);
         }
 
         private async Task DisposePlayerAsync(Task[] pending)
         {
             await Task.WhenAll(pending).ConfigureAwait(false);
+            _modeGate.Dispose();
             _player.Dispose();
         }
 

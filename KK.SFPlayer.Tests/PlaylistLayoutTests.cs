@@ -192,6 +192,48 @@ namespace KK.SFPlayer.Tests
                 Assert.Equal(0, viewModel.RepeatMode);
                 Assert.DoesNotContain("active", repeat.Classes);
 
+                player.ModeResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var shuffleChange = viewModel.ToggleShuffleCommand.ExecuteAsync(null);
+                Layout(window);
+                Assert.Contains("active", shuffle.Classes);
+                Assert.True(shuffle.IsEnabled);
+                Assert.True(repeat.IsEnabled);
+                player.PublishModes(false, 0);
+                Assert.True(viewModel.ShuffleEnabled);
+                var repeatChange = viewModel.CycleRepeatCommand.ExecuteAsync(null);
+                Layout(window);
+                Assert.DoesNotContain("active", shuffle.Classes);
+                Assert.Contains("active", repeat.Classes);
+                Assert.Equal(1, viewModel.RepeatMode);
+                player.ModeResponse.SetResult();
+                using (var modeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
+                {
+                    Dispatcher.UIThread.MainLoop(modeTimeout.Token);
+                }
+
+                Assert.True(shuffleChange.IsCompletedSuccessfully);
+                Assert.True(repeatChange.IsCompletedSuccessfully);
+                player.PublishModes(true, 0);
+                Assert.False(viewModel.ShuffleEnabled);
+                Assert.Equal(1, viewModel.RepeatMode);
+                player.PublishModes(false, 1);
+                player.ModeResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var failedChange = viewModel.ToggleShuffleCommand.ExecuteAsync(null);
+                Assert.True(viewModel.ShuffleEnabled);
+                player.ModeResponse.SetException(new InvalidOperationException("Mode change failed."));
+                using (var modeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
+                {
+                    Dispatcher.UIThread.MainLoop(modeTimeout.Token);
+                }
+
+                Assert.True(failedChange.IsCompletedSuccessfully);
+                Assert.False(viewModel.ShuffleEnabled);
+                Assert.Equal(1, viewModel.RepeatMode);
+                Assert.False(string.IsNullOrEmpty(viewModel.Status));
+                player.ModeResponse = null;
+                viewModel.CycleRepeatCommand.Execute(null);
+                viewModel.CycleRepeatCommand.Execute(null);
+
                 player.TrackOffsets.Clear();
 
                 var cardPoint = card.TranslatePoint(new Point(155, 65), window)!.Value;
@@ -384,26 +426,45 @@ namespace KK.SFPlayer.Tests
 
             private bool _shuffle;
             private int _repeat;
+            public TaskCompletionSource? ModeResponse { get; set; }
+
+            public void PublishModes(bool shuffle, int repeat) => ModesChanged?.Invoke(this, new PlaybackModes(shuffle, repeat));
 
             public int NextCount { get; private set; }
             public int PreviousCount { get; private set; }
 
-            public void NextTrack() => NextCount++;
-
-            public void PreviousTrack() => PreviousCount++;
-
-            public Task SetShuffleAsync(bool enabled, CancellationToken cancellationToken)
+            public Task NextTrackAsync(CancellationToken cancellationToken)
             {
-                _shuffle = enabled;
-                ModesChanged?.Invoke(this, new PlaybackModes(_shuffle, _repeat));
+                NextCount++;
                 return Task.CompletedTask;
             }
 
-            public Task SetRepeatAsync(int mode, CancellationToken cancellationToken)
+            public Task PreviousTrackAsync(CancellationToken cancellationToken)
             {
+                PreviousCount++;
+                return Task.CompletedTask;
+            }
+
+            public async Task SetShuffleAsync(bool enabled, CancellationToken cancellationToken)
+            {
+                if (ModeResponse is { } response)
+                {
+                    await response.Task.WaitAsync(cancellationToken);
+                }
+
+                _shuffle = enabled;
+                ModesChanged?.Invoke(this, new PlaybackModes(_shuffle, _repeat));
+            }
+
+            public async Task SetRepeatAsync(int mode, CancellationToken cancellationToken)
+            {
+                if (ModeResponse is { } response)
+                {
+                    await response.Task.WaitAsync(cancellationToken);
+                }
+
                 _repeat = mode;
                 ModesChanged?.Invoke(this, new PlaybackModes(_shuffle, _repeat));
-                return Task.CompletedTask;
             }
 
             public event EventHandler<bool>? PlayingChanged;
@@ -466,7 +527,7 @@ namespace KK.SFPlayer.Tests
                 return Task.FromResult(new TrackPage(tracks, offset + tracks.Length, offset + tracks.Length < 60, 60, 10800000));
             }
 
-            public Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null)
+            public Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null, int sort = 0)
             {
                 Played.Add((playlistUri, position));
                 return Task.CompletedTask;

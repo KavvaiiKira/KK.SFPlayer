@@ -114,7 +114,7 @@ namespace KK.SFPlayer.Tests
                 })),
                 "/v1/playlists/demo" => Json(JsonSerializer.Serialize(new { snapshot_id = version })),
                 "/v1/playlists/demo/items" => CacheTracks(names),
-                "/v1/me/player/play" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             };
             using var initial = new TestContext(Respond);
@@ -146,7 +146,7 @@ namespace KK.SFPlayer.Tests
             Assert.Equal(names, viewModel.Tracks.Select(track => track.Name));
             Assert.Single(restarted.Handler.Requests, request => request.Path.EndsWith("/items", StringComparison.Ordinal));
             await restarted.Player.PlayAsync("spotify:playlist:demo", 0, CancellationToken.None, "spotify:track:one");
-            using (var play = JsonDocument.Parse(restarted.Handler.Requests.Last().Body))
+            using (var play = JsonDocument.Parse(restarted.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(2, play.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             }

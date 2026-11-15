@@ -29,5 +29,6 @@ namespace KK.SFPlayer.Constants
         public const string RemainingTimeFormat = "-{0}";
         public const double DefaultVolume = 0.1;
         public const int ConnectionTimeoutSeconds = 40;
+        public const int ModeConfirmationTimeoutSeconds = 5;
     }
 }
