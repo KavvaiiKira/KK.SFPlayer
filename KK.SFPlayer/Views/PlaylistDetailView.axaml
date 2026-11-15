@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:constants="using:KK.SFPlayer.Constants"
              xmlns:vm="using:KK.SFPlayer.ViewModels"
-             xmlns:models="using:KK.SFPlayer.Models"
+             xmlns:models="using:KK.SFPlayer.Models.Records"
              xmlns:controls="using:KK.SFPlayer.Controls"
              x:Class="KK.SFPlayer.Views.PlaylistDetailView"
              x:DataType="vm:MainViewModel"
@@ -42,6 +42,7 @@
                       AutomationProperties.Name="{x:Static constants:PlaylistConstants.Sort}" />
         </Grid>
         <ListBox x:Name="TracksList" Grid.Row="6" Classes="playlist-list"
+                 Padding="0,0,4,0"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
                  ItemsSource="{Binding SortedTracks}">
             <ListBox.ItemsPanel>
@@ -51,12 +52,20 @@
             </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="models:TrackInfo">
-                    <Border Height="32" Margin="0,0,8,0" BorderThickness="0,0,0,1"
-                            BorderBrush="{DynamicResource AppSurfaceRaisedBrush}">
-                        <Grid ColumnDefinitions="*,12,40">
-                            <controls:TrimmedTextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.78"
+                    <Border Classes="track-row" Height="32" Margin="0,0,12,0" BorderThickness="3,0,0,1"
+                            Tapped="OnTrackTapped">
+                        <Grid ColumnDefinitions="18,*,12,Auto">
+                            <Grid Width="10" Height="12" VerticalAlignment="Center">
+                                <PathIcon Classes="playing-indicator" Width="9" Height="10"
+                                          Data="M0,7 H3 V16 H0 Z M5,0 H8 V16 H5 Z M10,4 H13 V16 H10 Z"
+                                          Foreground="{DynamicResource AppPrimaryHoverBrush}" />
+                                <PathIcon Classes="paused-indicator" Width="8" Height="10"
+                                          Data="M2,2 H7 V18 H2 Z M11,2 H16 V18 H11 Z"
+                                          Foreground="{DynamicResource AppPrimaryHoverBrush}" />
+                            </Grid>
+                            <controls:TrimmedTextBlock Grid.Column="1" Classes="track-title" VerticalAlignment="Center" FontSize="12"
                                                        Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            <TextBlock Grid.Column="3" MinWidth="40" TextAlignment="Right" HorizontalAlignment="Right" VerticalAlignment="Center"
                                        FontSize="11" Foreground="{DynamicResource AppTextMutedBrush}"
                                        Text="{Binding Duration}" />
                         </Grid>

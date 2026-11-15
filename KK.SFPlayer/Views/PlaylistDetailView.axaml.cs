@@ -4,6 +4,9 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia.VisualTree;
 using KK.SFPlayer.ViewModels;
+using KK.SFPlayer.Models.Records;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 
 namespace KK.SFPlayer.Views
 {
@@ -15,6 +18,7 @@ namespace KK.SFPlayer.Views
         {
             InitializeComponent();
             TracksList.AddHandler(ScrollViewer.ScrollChangedEvent, OnTracksScrolled);
+            TracksList.AddHandler(KeyDownEvent, OnTracksKeyDown, RoutingStrategies.Tunnel);
             DataContextChanged += (_, _) => UpdateModel();
         }
 
@@ -28,14 +32,35 @@ namespace KK.SFPlayer.Views
             }
         }
 
+        private void OnTrackTapped(object? sender, TappedEventArgs e)
+        {
+            if (sender is Control { DataContext: TrackInfo track } && _model?.PlayTrackCommand.CanExecute(track) == true)
+            {
+                _model.PlayTrackCommand.Execute(track);
+                e.Handled = true;
+            }
+        }
+
+        private void OnTracksKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && TracksList.SelectedItem is TrackInfo track &&
+                _model?.PlayTrackCommand.CanExecute(track) == true)
+            {
+                _model.PlayTrackCommand.Execute(track);
+                e.Handled = true;
+            }
+        }
+
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
+            LayoutUpdated += OnLayoutUpdated;
             UpdateModel();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
+            LayoutUpdated -= OnLayoutUpdated;
             if (_model is not null)
             {
                 _model.PropertyChanged -= OnModelPropertyChanged;
@@ -57,10 +82,31 @@ namespace KK.SFPlayer.Views
             {
                 _model.PropertyChanged += OnModelPropertyChanged;
             }
+
+            UpdateCurrentTrack();
+        }
+
+        private void OnLayoutUpdated(object? sender, System.EventArgs e) => UpdateCurrentTrack();
+
+        private void UpdateCurrentTrack()
+        {
+            var playlistMatches = _model?.SelectedPlaylist?.Uri is { } playlistUri && playlistUri == _model.CurrentPlaylistUri;
+            foreach (var row in TracksList.GetVisualDescendants().OfType<Border>().Where(border => border.Classes.Contains("track-row")))
+            {
+                var current = playlistMatches && row.DataContext is TrackInfo track && track.Uri == _model?.CurrentTrackUri;
+                row.Classes.Set("current", current);
+                row.Classes.Set("playing", current && _model?.IsPlaying == true);
+            }
         }
 
         private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (e.PropertyName is nameof(MainViewModel.CurrentTrackUri) or nameof(MainViewModel.CurrentPlaylistUri) or
+                nameof(MainViewModel.SelectedPlaylist) or nameof(MainViewModel.IsPlaying))
+            {
+                UpdateCurrentTrack();
+            }
+
             if (e.PropertyName is nameof(MainViewModel.SelectedPlaylist) or nameof(MainViewModel.SelectedSort))
             {
                 var scroll = TracksList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();

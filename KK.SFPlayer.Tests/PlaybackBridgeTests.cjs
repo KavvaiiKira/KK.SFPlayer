@@ -10,6 +10,7 @@ function createBridge(connected = true) {
     const messages = [];
     const listeners = {};
     const players = [];
+    const timers = new Set();
     const window = {
         chrome: { webview: {
             postMessage: message => messages.push(message),
@@ -24,6 +25,9 @@ function createBridge(connected = true) {
             this.disconnected = false;
             this.paused = false;
             this.volume = options.volume;
+            this.nextCount = 0;
+            this.previousCount = 0;
+            this.state = { paused: false, position: 0, duration: 180000, track_window: { current_track: { uri: "spotify:track:one" } } };
             players.push(this);
         }
         addListener(name, callback) { this.listeners[name] = callback; }
@@ -35,10 +39,18 @@ function createBridge(connected = true) {
             return Promise.resolve();
         }
         setVolume(volume) { this.volume = volume; return Promise.resolve(); }
+        nextTrack() { this.nextCount++; return Promise.resolve(); }
+        previousTrack() { this.previousCount++; return Promise.resolve(); }
+        getCurrentState() { return Promise.resolve(this.state); }
+        seek(position) { this.state.position = position; return Promise.resolve(); }
     }
-    vm.runInNewContext(source, { window, Spotify: { Player } });
+    vm.runInNewContext(source, {
+        window, Spotify: { Player },
+        setInterval: callback => { timers.add(callback); return callback; },
+        clearInterval: timer => timers.delete(timer)
+    });
     return {
-        window, players, messages,
+        window, players, messages, timers,
         send: data => listeners.message({ data }),
         close: () => listeners.pagehide()
     };
@@ -140,4 +152,52 @@ test("pause and resume report actual player state", () => {
     assert.equal(bridge.messages.at(-1).playing, false);
     bridge.send({ type: "toggle" });
     assert.equal(bridge.messages.at(-1).playing, true);
+});
+
+test("next and previous control the local SDK player and modes come from its state", () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    bridge.send({ type: "next" });
+    bridge.send({ type: "previous" });
+    const player = bridge.players[0];
+    assert.equal(player.nextCount, 1);
+    assert.equal(player.previousCount, 1);
+    player.listeners.player_state_changed({
+        paused: false, shuffle: true, repeat_mode: 2,
+        track_window: { current_track: { uri: "spotify:track:changed", name: "New track", artists: [{ name: "Artist" }] } },
+        context: { uri: "spotify:playlist:current" }
+    });
+    assert.equal(bridge.messages.at(-1).shuffle, true);
+    assert.equal(bridge.messages.at(-1).repeatMode, 2);
+    assert.equal(bridge.messages.at(-1).trackUri, "spotify:track:changed");
+    assert.equal(bridge.messages.at(-1).contextUri, "spotify:playlist:current");
+    assert.equal(bridge.messages.at(-1).trackName, "New track");
+    assert.equal(bridge.messages.at(-1).artists, "Artist");
+});
+
+test("progress polls local SDK state, supports seek and stops polling when closed", async () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    const player = bridge.players[0];
+    player.listeners.ready({ device_id: "local-device" });
+    assert.equal(bridge.timers.size, 1);
+    player.state.position = 30000;
+    await [...bridge.timers][0]();
+    assert.equal(bridge.messages.at(-1).position, 30000);
+    assert.equal(bridge.messages.at(-1).duration, 180000);
+    assert.equal(bridge.messages.at(-1).canSeek, true);
+    bridge.send({ type: "seek", position: 90000 });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(player.state.position, 90000);
+    assert.equal(bridge.messages.at(-1).position, 90000);
+    player.state.paused = true;
+    player.state.disallows = { seeking: true };
+    await [...bridge.timers][0]();
+    assert.equal(bridge.messages.at(-1).playing, false);
+    assert.equal(bridge.messages.at(-1).canSeek, false);
+    bridge.close();
+    assert.equal(bridge.timers.size, 0);
 });

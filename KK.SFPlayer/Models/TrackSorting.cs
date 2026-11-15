@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KK.SFPlayer.Models.Records;
 
 namespace KK.SFPlayer.Models
 {
@@ -9,6 +10,11 @@ namespace KK.SFPlayer.Models
 
         public static int Compare(int sort, TrackInfo left, TrackInfo right)
         {
+            if (sort is 4 or 5 && left.AddedAt.HasValue != right.AddedAt.HasValue)
+            {
+                return left.AddedAt.HasValue ? -1 : 1;
+            }
+
             var comparison = sort switch
             {
                 1 => StringComparer.CurrentCultureIgnoreCase.Compare(left.Name, right.Name),

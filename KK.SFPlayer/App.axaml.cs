@@ -22,6 +22,9 @@ namespace KK.SFPlayer
                 var viewModel = new MainViewModel(player, settings, new StartupService());
                 playback.PlaybackError += (_, message) => viewModel.Status = message;
                 desktop.MainWindow = new MainWindow { DataContext = viewModel };
+                var audioSession = new AudioSessionPresence();
+                desktop.MainWindow.Opened += async (_, _) => await audioSession.StartAsync();
+                desktop.MainWindow.Closed += (_, _) => audioSession.Dispose();
             }
 
             base.OnFrameworkInitializationCompleted();

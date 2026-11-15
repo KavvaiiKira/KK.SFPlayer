@@ -9,7 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using KK.SFPlayer.Models;
+using KK.SFPlayer.Models.Records;
 using KK.SFPlayer.Services;
 using KK.SFPlayer.ViewModels;
 using SpotifyAPI.Web;
@@ -18,11 +18,151 @@ using Xunit;
 
 namespace KK.SFPlayer.Tests
 {
-    public sealed class SpotifyIntegrationTests
+    public sealed partial class SpotifyIntegrationTests
     {
         private const string ClientId = "0123456789abcdef0123456789abcdef";
         private const string TokenJson = """{"access_token":"new-access","refresh_token":"rotated-refresh","token_type":"Bearer","expires_in":3600}""";
         private const string TrackJson = """{"type":"track","uri":"spotify:track:one","name":"First track","duration_ms":185000,"artists":[{"name":"Test artist"}],"album":{"images":[{"url":"https://example.com/cover.png"}]}}""";
+
+        [Theory]
+        [InlineData(false, 0, 0)]
+        [InlineData(false, 1, 1)]
+        [InlineData(false, 4, 1)]
+        [InlineData(false, 5, 0)]
+        [InlineData(true, 0, 0)]
+        [InlineData(true, 1, 1)]
+        [InlineData(true, 4, 0)]
+        [InlineData(true, 5, 1)]
+        public async Task StartupPlayUsesCurrentScreenAndPersistedGlobalSort(bool openPlaylist, int sort, int expectedPosition)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(request =>
+            {
+                if (request.Path == "/v1/me/playlists")
+                {
+                    return Json("""{"items":[{"id":"first","uri":"spotify:playlist:first","name":"First"},{"id":"second","uri":"spotify:playlist:second","name":"Second"}],"next":null}""");
+                }
+
+                if (request.Path.EndsWith("/items", StringComparison.Ordinal))
+                {
+                    var reversedDates = request.Path.Contains("second", StringComparison.Ordinal);
+                    return Json(JsonSerializer.Serialize(new
+                    {
+                        items = Enumerable.Range(0, 2).Select(index => new
+                        {
+                            added_at = new DateTime(2026, 1, reversedDates ? 2 - index : index + 1, 0, 0, 0, DateTimeKind.Utc),
+                            item = new
+                            {
+                                type = "track",
+                                uri = $"spotify:track:{index}",
+                                name = index == 0 ? "Zulu" : "Alpha",
+                                duration_ms = 180000,
+                                artists = new[] { new { name = "Artist" } },
+                            },
+                        }),
+                        total = 2,
+                        next = (string?)null,
+                    }));
+                }
+
+                if (request.Path == "/v1/me/player/play")
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+
+                throw new InvalidOperationException(request.Path);
+            });
+            context.SeedToken(false);
+            context.Store.Save(context.Store.Load() with { PlaylistSorts = new() { ["first"] = sort, ["second"] = sort } });
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            if (openPlaylist)
+            {
+                await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[1]);
+            }
+
+            Assert.False(viewModel.HasPlayback);
+            await viewModel.TogglePlaybackCommand.ExecuteAsync(null);
+
+            var request = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
+            using var body = JsonDocument.Parse(request.Body);
+            Assert.Equal(openPlaylist ? "spotify:playlist:second" : "spotify:playlist:first", body.RootElement.GetProperty("context_uri").GetString());
+            Assert.Equal(expectedPosition, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
+            Assert.True(viewModel.HasPlayback);
+        }
+
+        [Fact]
+        public async Task SortedPagesHaveGlobalStartAndStableBoundariesAcrossDateSortChanges()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(request =>
+            {
+                Assert.Equal("/v1/playlists/demo/items", request.Path);
+                var offset = request.Query.Contains("offset=100", StringComparison.Ordinal) ? 100 :
+                    request.Query.Contains("offset=50", StringComparison.Ordinal) ? 50 : 0;
+                return Json(JsonSerializer.Serialize(new
+                {
+                    items = Enumerable.Range(offset, Math.Min(50, 120 - offset)).Select(index => new
+                    {
+                        is_local = index == 23,
+                        added_at = index == 10 ? (DateTime?)null :
+                            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMinutes(index * 37 % 120),
+                        item = index == 79 ? null : new
+                        {
+                            type = "track",
+                            uri = $"spotify:track:{index}",
+                            name = $"Track {120 - index:000}",
+                            duration_ms = 180000,
+                            artists = new[] { new { name = "Artist" } },
+                        },
+                    }),
+                    total = 120,
+                    next = offset < 100 ? "https://api.spotify.com/next" : null,
+                }));
+            });
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+
+            var newest = await context.Player.GetSortedTrackPageAsync("demo", 4, 0, CancellationToken.None);
+            Assert.Equal(107, newest.Tracks[0].Position);
+            Assert.Equal(50, newest.Tracks.Count);
+            Assert.Equal(118, newest.Total);
+            Assert.Equal(21240000, newest.TotalDurationMs);
+            Assert.Equal(3, context.Handler.Requests.Count);
+            Assert.All(context.Handler.Requests, request =>
+            {
+                Assert.Contains("limit=50", request.Query);
+                Assert.Contains("fields=", request.Query);
+                Assert.DoesNotContain("album", Uri.UnescapeDataString(request.Query));
+            });
+
+            var oldest = await context.Player.GetSortedTrackPageAsync("demo", 5, 0, CancellationToken.None);
+            Assert.Equal(0, oldest.Tracks[0].Position);
+            var second = await context.Player.GetSortedTrackPageAsync("demo", 4, newest.NextOffset, CancellationToken.None);
+            var last = await context.Player.GetSortedTrackPageAsync("demo", 4, second.NextOffset, CancellationToken.None);
+            var all = newest.Tracks.Concat(second.Tracks).Concat(last.Tracks).ToArray();
+            Assert.Equal(118, all.Length);
+            Assert.Equal(118, all.Select(track => track.Position).Distinct().Count());
+            Assert.Equal(10, all[^1].Position);
+            Assert.True(newest.Tracks[^1].AddedAt >= second.Tracks[0].AddedAt);
+            Assert.False(last.HasMore);
+            Assert.Equal(3, context.Handler.Requests.Count);
+
+            var original = await context.Player.GetSortedTrackPageAsync("demo", 0, 0, CancellationToken.None);
+            Assert.Equal(0, original.Tracks[0].Position);
+            Assert.Equal(3, context.Handler.Requests.Count);
+            context.Player.InvalidateTrackCache("demo");
+            await context.Player.GetSortedTrackPageAsync("demo", 5, 0, CancellationToken.None);
+            Assert.Equal(6, context.Handler.Requests.Count);
+        }
 
         [Fact]
         public async Task TrackPageLoadsOnlyFiftyAndPreservesAddedDateAndPlaybackPosition()
@@ -94,7 +234,6 @@ namespace KK.SFPlayer.Tests
             Assert.Equal(2, context.Handler.Requests.Count);
             Assert.Equal(50, viewModel.Tracks.Count);
             Assert.Equal("51 songs", viewModel.PlaylistSummary);
-            viewModel.SelectedSort = 4;
             await viewModel.LoadMoreTracksCommand.ExecuteAsync(null);
 
             Assert.Equal(50, viewModel.Tracks.Count);
@@ -104,7 +243,7 @@ namespace KK.SFPlayer.Tests
 
             Assert.Equal(51, viewModel.Tracks.Count);
             Assert.Equal(51, viewModel.SortedTracks.Count);
-            Assert.Equal(50, viewModel.SortedTracks[0].Position);
+            Assert.Equal(0, viewModel.SortedTracks[0].Position);
             Assert.Equal(2, nextAttempts);
             Assert.All(context.Handler.Requests.TakeLast(2), request => Assert.Contains("offset=50", request.Query));
             Assert.False(viewModel.HasMoreTracks);
@@ -649,6 +788,7 @@ namespace KK.SFPlayer.Tests
             await viewModel.InitializeAsync();
             await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
             viewModel.SelectedSort = 1;
+            await viewModel.SortLoadingTask;
             Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
             Assert.Equal("Alpha", viewModel.PlaylistCards[0].Tracks[0].Name);
             await viewModel.PlayPlaylistCommand.ExecuteAsync(null);
@@ -661,6 +801,7 @@ namespace KK.SFPlayer.Tests
             await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[1]);
             Assert.Equal(0, viewModel.SelectedSort);
             viewModel.SelectedSort = 4;
+            await viewModel.SortLoadingTask;
             Assert.Equal(4, context.Store.Load().PlaylistSorts["two"]);
             Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
             viewModel.BackCommand.Execute(null);
@@ -685,6 +826,83 @@ namespace KK.SFPlayer.Tests
             await restarted.OpenPlaylistCommand.ExecuteAsync(restarted.Playlists[1]);
             Assert.Equal(4, restarted.SelectedSort);
             Assert.Equal("Beta", restarted.SortedTracks[0].Name);
+        }
+
+        [Fact]
+        public async Task ProgressUpdatesTimersAndSeekingDoesNotJumpWhileDraggingOrSeekAnotherTrack()
+        {
+            using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected network request."));
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            context.Playback.PublishProgress(new PlaybackProgress(30000, 180000, true, "spotify:track:one", "spotify:playlist:demo", "First song", "Artist"));
+            Assert.Equal("First song — Artist", viewModel.NowPlaying);
+            Assert.True(viewModel.HasNowPlaying);
+            Assert.Equal("0:30", viewModel.ElapsedTime);
+            Assert.Equal("-2:30", viewModel.RemainingTime);
+            viewModel.BeginSeek();
+            viewModel.PositionMs = 90000;
+            context.Playback.PublishProgress(new PlaybackProgress(31000, 180000, true, "spotify:track:one"));
+            Assert.Equal(90000, viewModel.PositionMs);
+            viewModel.CommitSeek();
+            Assert.Equal(90000, Assert.Single(context.Playback.Seeks));
+            context.Playback.PublishProgress(new PlaybackProgress(91000, 180000, true, "spotify:track:one"));
+            Assert.Equal("1:31", viewModel.ElapsedTime);
+            viewModel.BeginSeek();
+            viewModel.PositionMs = 120000;
+            context.Playback.PublishProgress(new PlaybackProgress(0, 240000, true, "spotify:track:two"));
+            viewModel.CommitSeek();
+            Assert.Single(context.Playback.Seeks);
+            Assert.Equal(0, viewModel.PositionMs);
+            Assert.Equal("-4:00", viewModel.RemainingTime);
+            context.Playback.PublishProgress(new PlaybackProgress(1000, 240000, false, "spotify:track:two"));
+            Assert.False(viewModel.CanSeek);
+        }
+
+        [Fact]
+        public async Task ShuffleAndRepeatTargetEmbeddedDeviceAndFollowSdkState()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/me/playlists" => Json("""{"items":[{"id":"demo","uri":"spotify:playlist:demo","name":"Demo"}],"next":null}"""),
+                "/v1/playlists/demo/items" => Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}"),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
+            await viewModel.InitializeAsync();
+            Assert.False(viewModel.NextTrackCommand.CanExecute(null));
+            await viewModel.PlayCardCommand.ExecuteAsync(viewModel.Playlists[0]);
+            await viewModel.ToggleShuffleCommand.ExecuteAsync(null);
+            Assert.True(viewModel.ShuffleEnabled);
+            Assert.Contains("state=true", context.Handler.Requests.Last().Query);
+            Assert.Contains("device_id=local-device", context.Handler.Requests.Last().Query);
+            foreach (var state in new[] { "context", "track", "off" })
+            {
+                await viewModel.CycleRepeatCommand.ExecuteAsync(null);
+                Assert.False(viewModel.ShuffleEnabled);
+                Assert.Contains($"state={state}", context.Handler.Requests.Last().Query);
+                Assert.Contains("device_id=local-device", context.Handler.Requests.Last().Query);
+            }
+
+            context.Playback.PublishModes(false, 2);
+            Assert.False(viewModel.ShuffleEnabled);
+            Assert.True(viewModel.IsRepeatOne);
+            await viewModel.ToggleShuffleCommand.ExecuteAsync(null);
+            Assert.True(viewModel.ShuffleEnabled);
+            Assert.Equal(0, viewModel.RepeatMode);
+            Assert.Equal("/v1/me/player/repeat", context.Handler.Requests[^2].Path);
+            Assert.Contains("state=off", context.Handler.Requests[^2].Query);
+            viewModel.IsBusy = true;
+            viewModel.NextTrackCommand.Execute(null);
+            viewModel.PreviousTrackCommand.Execute(null);
+            Assert.Equal(1, context.Playback.NextCount);
+            Assert.Equal(1, context.Playback.PreviousCount);
+            viewModel.IsBusy = false;
         }
 
         [Fact]
@@ -830,9 +1048,12 @@ namespace KK.SFPlayer.Tests
 
         private sealed class TestContext : IDisposable
         {
-            public TestContext(Func<CapturedRequest, HttpResponseMessage> respond)
+            private readonly bool _ownsDirectory;
+
+            public TestContext(Func<CapturedRequest, HttpResponseMessage> respond, string? directory = null)
             {
-                Directory = Path.Combine(Path.GetTempPath(), "KK.SFPlayer.Tests", Guid.NewGuid().ToString("N"));
+                _ownsDirectory = directory is null;
+                Directory = directory ?? Path.Combine(Path.GetTempPath(), "KK.SFPlayer.Tests", Guid.NewGuid().ToString("N"));
                 Store = new SettingsStore(Directory);
                 Handler = new FakeSpotifyHandler(respond);
                 Player = new MPlayerService(Store, SpotifyClientConfig.CreateDefault()
@@ -870,7 +1091,7 @@ namespace KK.SFPlayer.Tests
                 Player.Dispose();
                 Handler.Dispose();
                 var testRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "KK.SFPlayer.Tests")) + Path.DirectorySeparatorChar;
-                if (Path.GetFullPath(Directory).StartsWith(testRoot, StringComparison.OrdinalIgnoreCase) &&
+                if (_ownsDirectory && Path.GetFullPath(Directory).StartsWith(testRoot, StringComparison.OrdinalIgnoreCase) &&
                     System.IO.Directory.Exists(Directory))
                 {
                     System.IO.Directory.Delete(Directory, true);
@@ -880,6 +1101,26 @@ namespace KK.SFPlayer.Tests
 
         private sealed class FakePlaybackEngine : ILocalPlaybackEngine
         {
+            public event EventHandler<PlaybackProgress>? ProgressChanged;
+
+            public List<int> Seeks { get; } = [];
+
+            public void Seek(int positionMs) => Seeks.Add(positionMs);
+
+            public void PublishProgress(PlaybackProgress progress) => ProgressChanged?.Invoke(this, progress);
+
+            public event EventHandler<PlaybackModes>? ModesChanged;
+
+            public void PublishModes(bool shuffle, int repeat) => ModesChanged?.Invoke(this, new PlaybackModes(shuffle, repeat));
+
+            public int NextCount { get; private set; }
+
+            public int PreviousCount { get; private set; }
+
+            public void NextTrack() => NextCount++;
+
+            public void PreviousTrack() => PreviousCount++;
+
             public event EventHandler<bool>? PlayingChanged;
 
             public bool IsPlaying { get; private set; } = true;

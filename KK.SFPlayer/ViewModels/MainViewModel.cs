@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using KK.SFPlayer.Models;
+using KK.SFPlayer.Models.Records;
 using KK.SFPlayer.Services;
 
 namespace KK.SFPlayer.ViewModels
@@ -28,8 +28,103 @@ namespace KK.SFPlayer.ViewModels
         private int _nextPlaylistOffset;
         private int _nextTrackOffset;
         private int _totalTrackCount;
+        private bool _restoringSort;
+        internal Task SortLoadingTask { get; private set; } = Task.CompletedTask;
         private readonly HashSet<string> _playlistIds = [];
+        private readonly HashSet<string> _pendingPlaylistUpdates = [];
         private readonly List<Task> _retiredPreviewLoads = [];
+        private PlaybackProgress _progress = new(0, 0, false, null);
+        private string? _seekTrackUri;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ElapsedTime))]
+        [NotifyPropertyChangedFor(nameof(RemainingTime))]
+        private double _positionMs;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(SeekMaximum))]
+        [NotifyPropertyChangedFor(nameof(RemainingTime))]
+        private int _durationMs;
+
+        [ObservableProperty]
+        private bool _canSeek;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasNowPlaying))]
+        private string _nowPlaying = string.Empty;
+
+        public bool HasNowPlaying => !HasStatus && !string.IsNullOrWhiteSpace(NowPlaying);
+
+        public bool IsSeeking { get; private set; }
+
+        public string? CurrentTrackUri => _progress.TrackUri;
+
+        public string? CurrentPlaylistUri => _progress.ContextUri;
+
+        public double SeekMaximum => Math.Max(1, DurationMs);
+
+        public string ElapsedTime => FormatTrackTime(PositionMs);
+
+        public string RemainingTime => string.Format(StreamingConstants.RemainingTimeFormat, FormatTrackTime(DurationMs - PositionMs));
+
+        private static string FormatTrackTime(double milliseconds)
+        {
+            var time = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+            return $"{(int)time.TotalMinutes}:{time.Seconds:00}";
+        }
+
+        private void OnProgressChanged(object? sender, PlaybackProgress progress)
+        {
+            if (IsSeeking && _seekTrackUri != progress.TrackUri)
+            {
+                IsSeeking = false;
+            }
+
+            var trackChanged = _progress.TrackUri != progress.TrackUri;
+            var playlistChanged = _progress.ContextUri != progress.ContextUri;
+            _progress = progress;
+            NowPlaying = string.IsNullOrWhiteSpace(progress.TrackName) ? string.Empty :
+                string.IsNullOrWhiteSpace(progress.Artists) ? progress.TrackName : $"{progress.TrackName} — {progress.Artists}";
+            if (trackChanged)
+            {
+                OnPropertyChanged(nameof(CurrentTrackUri));
+            }
+
+            if (playlistChanged)
+            {
+                OnPropertyChanged(nameof(CurrentPlaylistUri));
+            }
+            DurationMs = Math.Max(0, progress.DurationMs);
+            CanSeek = progress.CanSeek && DurationMs > 0;
+            if (!IsSeeking)
+            {
+                PositionMs = Math.Clamp(progress.PositionMs, 0, DurationMs);
+            }
+        }
+
+        public void BeginSeek()
+        {
+            if (CanSeek)
+            {
+                IsSeeking = true;
+                _seekTrackUri = _progress.TrackUri;
+            }
+        }
+
+        public void CommitSeek()
+        {
+            if (!IsSeeking)
+            {
+                return;
+            }
+
+            IsSeeking = false;
+            if (CanSeek && _seekTrackUri == _progress.TrackUri)
+            {
+                var position = (int)Math.Clamp(PositionMs, 0, DurationMs);
+                SendTransport(() => _player.Seek(position));
+            }
+        }
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
@@ -42,6 +137,120 @@ namespace KK.SFPlayer.ViewModels
 
         [ObservableProperty]
         private double _volume = StreamingConstants.DefaultVolume * 100;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ShuffleTooltip))]
+        private bool _shuffleEnabled;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RepeatTooltip))]
+        [NotifyPropertyChangedFor(nameof(IsRepeatEnabled))]
+        [NotifyPropertyChangedFor(nameof(IsRepeatOne))]
+        private int _repeatMode;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(ToggleShuffleCommand))]
+        [NotifyCanExecuteChangedFor(nameof(CycleRepeatCommand))]
+        private bool _isChangingMode;
+
+        public string ShuffleTooltip => ShuffleEnabled ? StreamingConstants.ShuffleOn : StreamingConstants.ShuffleOff;
+
+        public string RepeatTooltip => RepeatMode switch
+        {
+            1 => StreamingConstants.RepeatAll,
+            2 => StreamingConstants.RepeatOne,
+            _ => StreamingConstants.RepeatOff,
+        };
+
+        public bool IsRepeatEnabled => RepeatMode > 0;
+
+        public bool IsRepeatOne => RepeatMode == 2;
+
+        public bool CanUseTransport => IsConnected && HasPlayback;
+
+        public bool CanChangeModes => CanUseTransport && !IsChangingMode;
+
+        partial void OnHasPlaybackChanged(bool value) => UpdateTransportCommands();
+
+        private void UpdateTransportCommands()
+        {
+            PreviousTrackCommand.NotifyCanExecuteChanged();
+            NextTrackCommand.NotifyCanExecuteChanged();
+            ToggleShuffleCommand.NotifyCanExecuteChanged();
+            CycleRepeatCommand.NotifyCanExecuteChanged();
+        }
+
+        private void OnModesChanged(object? sender, PlaybackModes modes)
+        {
+            ShuffleEnabled = modes.Shuffle;
+            RepeatMode = modes.RepeatMode;
+        }
+
+        [RelayCommand(CanExecute = nameof(CanUseTransport))]
+        private void PreviousTrack() => SendTransport(_player.PreviousTrack);
+
+        [RelayCommand(CanExecute = nameof(CanUseTransport))]
+        private void NextTrack() => SendTransport(_player.NextTrack);
+
+        private void SendTransport(Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+            }
+        }
+
+        [RelayCommand(CanExecute = nameof(CanChangeModes))]
+        private Task ToggleShuffleAsync() => ChangeModeAsync(async cancellationToken =>
+        {
+            var enabled = !ShuffleEnabled;
+            if (enabled && RepeatMode != 0)
+            {
+                await _player.SetRepeatAsync(0, cancellationToken);
+                RepeatMode = 0;
+            }
+
+            await _player.SetShuffleAsync(enabled, cancellationToken);
+            ShuffleEnabled = enabled;
+        });
+
+        [RelayCommand(CanExecute = nameof(CanChangeModes))]
+        private Task CycleRepeatAsync() => ChangeModeAsync(async cancellationToken =>
+        {
+            var mode = (RepeatMode + 1) % 3;
+            if (mode != 0 && ShuffleEnabled)
+            {
+                await _player.SetShuffleAsync(false, cancellationToken);
+                ShuffleEnabled = false;
+            }
+
+            await _player.SetRepeatAsync(mode, cancellationToken);
+            RepeatMode = mode;
+        });
+
+        private async Task ChangeModeAsync(Func<CancellationToken, Task> action)
+        {
+            IsChangingMode = true;
+            try
+            {
+                await action(_lifetime.Token);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                Status = ErrorMessages.From(exception);
+            }
+            finally
+            {
+                IsChangingMode = false;
+            }
+        }
 
         public string PlaybackTooltip => IsPlaying ? StreamingConstants.Pause :
             HasPlayback ? StreamingConstants.Resume : StreamingConstants.Play;
@@ -71,7 +280,15 @@ namespace KK.SFPlayer.ViewModels
         {
             if (!HasPlayback)
             {
-                await PlayCardAsync(Playlists.FirstOrDefault());
+                if (SelectedPlaylist is not null)
+                {
+                    await PlayPlaylistAsync();
+                }
+                else
+                {
+                    await PlayCardAsync(Playlists.FirstOrDefault());
+                }
+
                 return;
             }
 
@@ -161,6 +378,7 @@ namespace KK.SFPlayer.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(HasStatus))]
+        [NotifyPropertyChangedFor(nameof(HasNowPlaying))]
         private string _status = string.Empty;
 
         [ObservableProperty]
@@ -176,6 +394,10 @@ namespace KK.SFPlayer.ViewModels
         {
             _player = player;
             _player.PlayingChanged += OnPlayingChanged;
+            _player.ModesChanged += OnModesChanged;
+            _player.ProgressChanged += OnProgressChanged;
+            _player.PlaylistChanged += OnPlaylistChanged;
+            _player.CacheWarning += OnCacheWarning;
             _store = store;
             _startup = startup ?? new StartupService();
             Settings = new SettingsViewModel(SaveSettings, CloseSettings);
@@ -205,18 +427,12 @@ namespace KK.SFPlayer.ViewModels
 
         partial void OnSelectedSortChanged(int value)
         {
-            SortTracks();
-            if (SelectedPlaylist is not { } playlist)
+            if (_restoringSort || SelectedPlaylist is not { } playlist)
             {
                 return;
             }
 
             PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlist.Id)?.SetSort(value);
-            if (GetPlaylistSort(playlist.Id) == value)
-            {
-                return;
-            }
-
             var sorts = new Dictionary<string, int>(_settings.PlaylistSorts ?? []) { [playlist.Id] = value };
             var next = _settings with { PlaylistSorts = sorts };
             try
@@ -228,21 +444,23 @@ namespace KK.SFPlayer.ViewModels
             {
                 Status = ErrorMessages.From(exception);
             }
+
+            ResetTrackPages();
+            SortLoadingTask = RunAsync(cancellationToken => LoadTrackPageAsync(playlist.Id, cancellationToken), true);
         }
 
         private int GetPlaylistSort(string playlistId) =>
             _settings.PlaylistSorts?.TryGetValue(playlistId, out var sort) == true && sort >= 0 && sort < SortOptions.Count ? sort : 0;
 
-        private void SortTracks()
+        private void ResetTrackPages()
         {
+            Tracks.Clear();
             SortedTracks.Clear();
-            foreach (var track in Tracks.Order(TrackSorting.For(SelectedSort)))
-            {
-                SortedTracks.Add(track);
-            }
+            PlaylistSummary = string.Empty;
+            HasMoreTracks = false;
+            _nextTrackOffset = 0;
+            _totalTrackCount = 0;
         }
-
-        private int CompareTracks(TrackInfo left, TrackInfo right) => TrackSorting.Compare(SelectedSort, left, right);
 
         public SettingsViewModel Settings { get; }
 
@@ -301,6 +519,11 @@ namespace KK.SFPlayer.ViewModels
                 IsConnected = await _player.RestoreAsync(ClientId, cancellationToken);
                 if (IsConnected)
                 {
+                    if (_player.GetCachedPlaylists() is { } cached)
+                    {
+                        AppendPlaylistPage(cached);
+                    }
+
                     await LoadPlaylistsAsync(cancellationToken);
                 }
             }, true);
@@ -434,8 +657,45 @@ namespace KK.SFPlayer.ViewModels
         }
 
         [RelayCommand(CanExecute = nameof(CanUsePlayer))]
-        private Task RefreshAsync() => SelectedPlaylist is { } playlist ?
-            OpenPlaylistAsync(playlist) : RunAsync(LoadPlaylistsAsync, true);
+        private Task RefreshAsync()
+        {
+            return SelectedPlaylist is { } playlist ? RunAsync(async cancellationToken =>
+            {
+                await _player.CheckPlaylistVersionAsync(playlist.Id, cancellationToken);
+                await _player.EnsurePlaylistFreshAsync(playlist.Id, cancellationToken);
+                _pendingPlaylistUpdates.Remove(playlist.Id);
+                ResetTrackPages();
+                await LoadTrackPageAsync(playlist.Id, cancellationToken);
+            }, true) : RunAsync(LoadPlaylistsAsync, true);
+        }
+
+        private void OnCacheWarning(object? sender, string message) => Status = message;
+
+        private void OnPlaylistChanged(object? sender, string playlistId)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlistId)?.InvalidateTracks();
+            if (SelectedPlaylist?.Id == playlistId)
+            {
+                _pendingPlaylistUpdates.Add(playlistId);
+                ApplyPendingPlaylistUpdates();
+            }
+        }
+
+        private void ApplyPendingPlaylistUpdates()
+        {
+            if (!CanUsePlayer || SelectedPlaylist is not { } playlist || !_pendingPlaylistUpdates.Remove(playlist.Id))
+            {
+                return;
+            }
+
+            ResetTrackPages();
+            SortLoadingTask = RunAsync(cancellationToken => LoadTrackPageAsync(playlist.Id, cancellationToken), true);
+        }
 
         [RelayCommand(CanExecute = nameof(CanLoadMorePlaylists))]
         private Task LoadMorePlaylistsAsync() => RunAsync(async cancellationToken =>
@@ -488,13 +748,16 @@ namespace KK.SFPlayer.ViewModels
             }
 
             SelectedPlaylist = playlist;
-            Tracks.Clear();
-            SortedTracks.Clear();
-            PlaylistSummary = string.Empty;
-            SelectedSort = GetPlaylistSort(playlist.Id);
-            HasMoreTracks = false;
-            _nextTrackOffset = 0;
-            _totalTrackCount = 0;
+            ResetTrackPages();
+            _restoringSort = true;
+            try
+            {
+                SelectedSort = GetPlaylistSort(playlist.Id);
+            }
+            finally
+            {
+                _restoringSort = false;
+            }
             await RunAsync(cancellationToken => LoadTrackPageAsync(playlist.Id, cancellationToken), true);
         }
 
@@ -504,27 +767,17 @@ namespace KK.SFPlayer.ViewModels
 
         private async Task LoadTrackPageAsync(string playlistId, CancellationToken cancellationToken)
         {
-            var page = await _player.GetTrackPageAsync(playlistId, _nextTrackOffset, cancellationToken);
+            if (SelectedSort != 0 && _nextTrackOffset == 0)
+            {
+                Status = PlaylistConstants.Sorting;
+            }
+
+            var page = await _player.GetSortedTrackPageAsync(playlistId, SelectedSort, _nextTrackOffset, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var track in page.Tracks)
             {
                 Tracks.Add(track);
-                var low = 0;
-                var high = SortedTracks.Count;
-                while (low < high)
-                {
-                    var middle = low + (high - low) / 2;
-                    if (CompareTracks(SortedTracks[middle], track) <= 0)
-                    {
-                        low = middle + 1;
-                    }
-                    else
-                    {
-                        high = middle;
-                    }
-                }
-
-                SortedTracks.Insert(low, track);
+                SortedTracks.Add(track);
             }
 
             _nextTrackOffset = page.NextOffset;
@@ -532,9 +785,9 @@ namespace KK.SFPlayer.ViewModels
             HasMoreTracks = page.HasMore;
             PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlistId)?.UseTracks(Tracks, replace: true);
             PlaylistSummary = string.Format(PlaylistConstants.CountFormat, _totalTrackCount);
-            if (!HasMoreTracks && Tracks.Count == _totalTrackCount)
+            if (page.TotalDurationMs.HasValue || (!HasMoreTracks && Tracks.Count == _totalTrackCount))
             {
-                var duration = TimeSpan.FromMilliseconds(Tracks.Sum(track => (long)track.DurationMs));
+                var duration = TimeSpan.FromMilliseconds(page.TotalDurationMs ?? Tracks.Sum(track => (long)track.DurationMs));
                 var time = duration.TotalHours >= 1 ?
                     $"{(long)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}" :
                     $"{duration.Minutes}:{duration.Seconds:00}";
@@ -545,6 +798,10 @@ namespace KK.SFPlayer.ViewModels
             if (Tracks.Count == 0 && !HasMoreTracks)
             {
                 Status = PlaybackConstants.NoTracks;
+            }
+            else
+            {
+                Status = string.Empty;
             }
         }
 
@@ -564,7 +821,7 @@ namespace KK.SFPlayer.ViewModels
         }
 
         [RelayCommand(CanExecute = nameof(CanPlay))]
-        private Task PlayPlaylistAsync() => SortedTracks.FirstOrDefault() is { } first ? PlayAsync(first.Position) : Task.CompletedTask;
+        private Task PlayPlaylistAsync() => PlayAsync(null);
 
         [RelayCommand(CanExecute = nameof(CanPlay))]
         private Task PlayTrackAsync(TrackInfo? track) => PlayAsync(track?.Position);
@@ -579,22 +836,19 @@ namespace KK.SFPlayer.ViewModels
                     return;
                 }
 
-                await card.EnsureLoadedAsync();
+                await _player.EnsurePlaylistFreshAsync(playlist.Id, cancellationToken);
+                var page = await _player.GetSortedTrackPageAsync(playlist.Id, GetPlaylistSort(playlist.Id), 0, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                if (card.HasError)
-                {
-                    throw new InvalidOperationException(card.Error);
-                }
-
-                if (card.FirstTrack is not { } first)
+                card.UseTracks(page.Tracks, replace: true);
+                if (page.Tracks.FirstOrDefault() is not { } first)
                 {
                     throw new InvalidOperationException(PlaybackConstants.NoTracks);
                 }
 
-                await _player.PlayAsync(playlist.Uri, first.Position, cancellationToken);
+                await _player.PlayAsync(playlist.Uri, first.Position, cancellationToken, first.Uri);
                 HasPlayback = true;
                 IsPlaying = true;
-                Status = PlaybackConstants.Playing;
+                Status = string.Empty;
             });
 
         public void Dispose()
@@ -606,6 +860,10 @@ namespace KK.SFPlayer.ViewModels
 
             _disposed = true;
             _player.PlayingChanged -= OnPlayingChanged;
+            _player.ModesChanged -= OnModesChanged;
+            _player.ProgressChanged -= OnProgressChanged;
+            _player.PlaylistChanged -= OnPlaylistChanged;
+            _player.CacheWarning -= OnCacheWarning;
             _lifetime.Cancel();
             _operation?.Cancel();
             foreach (var card in PlaylistCards)
@@ -625,10 +883,15 @@ namespace KK.SFPlayer.ViewModels
         {
             OnPropertyChanged(nameof(ShowPlaylists));
             TogglePlaybackCommand.NotifyCanExecuteChanged();
+            UpdateTransportCommands();
             if (!value)
             {
                 HasPlayback = false;
                 IsPlaying = false;
+                ShuffleEnabled = false;
+                RepeatMode = 0;
+                IsSeeking = false;
+                OnProgressChanged(this, new PlaybackProgress(0, 0, false, null));
             }
         }
 
@@ -640,12 +903,27 @@ namespace KK.SFPlayer.ViewModels
                 return;
             }
 
+            var selectedTrack = position.HasValue ? Tracks.FirstOrDefault(track => track.Position == position) : null;
+
             await RunAsync(async cancellationToken =>
             {
-                await _player.PlayAsync(playlist.Uri, position, cancellationToken);
+                await _player.EnsurePlaylistFreshAsync(playlist.Id, cancellationToken);
+                var track = selectedTrack;
+                if (track is null)
+                {
+                    var page = await _player.GetSortedTrackPageAsync(playlist.Id, SelectedSort, 0, cancellationToken);
+                    track = page.Tracks.FirstOrDefault();
+                }
+
+                if (track is null)
+                {
+                    throw new InvalidOperationException(PlaybackConstants.NoTracks);
+                }
+
+                await _player.PlayAsync(playlist.Uri, track.Position, cancellationToken, track.Uri);
                 HasPlayback = true;
                 IsPlaying = true;
-                Status = PlaybackConstants.Playing;
+                Status = string.Empty;
             });
         }
 
@@ -706,7 +984,8 @@ namespace KK.SFPlayer.ViewModels
             }
 
             _disposePlayerScheduled = true;
-            var pending = _retiredPreviewLoads.Concat(PlaylistCards.Select(card => card.LoadingTask)).ToArray();
+            var pending = _retiredPreviewLoads.Concat(PlaylistCards.Select(card => card.LoadingTask))
+                .Concat(new[] { ToggleShuffleCommand.ExecutionTask, CycleRepeatCommand.ExecutionTask }.OfType<Task>()).ToArray();
             _ = DisposePlayerAsync(pending);
         }
 
@@ -762,6 +1041,10 @@ namespace KK.SFPlayer.ViewModels
             {
                 IsBusy = false;
                 _operation = null;
+                if (!_disposed)
+                {
+                    ApplyPendingPlaylistUpdates();
+                }
                 if (_disposed)
                 {
                     BeginDisposePlayer();

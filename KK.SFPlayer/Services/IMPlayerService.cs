@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using KK.SFPlayer.Models;
+using KK.SFPlayer.Models.Records;
 
 namespace KK.SFPlayer.Services
 {
@@ -11,6 +11,30 @@ namespace KK.SFPlayer.Services
         bool IsConnected { get; }
 
         event EventHandler<bool>? PlayingChanged;
+
+        event EventHandler<PlaybackModes>? ModesChanged;
+
+        event EventHandler<PlaybackProgress>? ProgressChanged;
+
+        event EventHandler<string>? PlaylistChanged;
+
+        event EventHandler<string>? CacheWarning;
+
+        PlaylistPage? GetCachedPlaylists();
+
+        Task EnsurePlaylistFreshAsync(string playlistId, CancellationToken cancellationToken);
+
+        Task CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken);
+
+        void Seek(int positionMs);
+
+        void NextTrack();
+
+        void PreviousTrack();
+
+        Task SetShuffleAsync(bool enabled, CancellationToken cancellationToken);
+
+        Task SetRepeatAsync(int mode, CancellationToken cancellationToken);
 
         void TogglePause();
 
@@ -30,8 +54,12 @@ namespace KK.SFPlayer.Services
 
         Task<TrackPage> GetTrackPageAsync(string playlistId, int offset, CancellationToken cancellationToken);
 
+        Task<TrackPage> GetSortedTrackPageAsync(string playlistId, int sort, int offset, CancellationToken cancellationToken);
+
+        void InvalidateTrackCache(string? playlistId = null);
+
         Task<PlaylistPreview> GetTrackPreviewAsync(string playlistId, CancellationToken cancellationToken);
 
-        Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken);
+        Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null);
     }
 }

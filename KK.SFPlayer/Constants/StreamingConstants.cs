@@ -12,11 +12,21 @@ namespace KK.SFPlayer.Constants
         public const string InitializationFailed = "Cannot start the audio player. Check your connection and try again.";
         public const string PlaybackFailed = "Spotify could not play this track. Try again.";
         public const string DeviceUnavailable = "The in-app player disconnected. Press Play to reconnect.";
-        public const string PlaybackStarted = "Playing in KK.SFPlayer.";
         public const string Pause = "Pause";
         public const string Play = "Play";
         public const string Resume = "Resume";
         public const string Volume = "Volume";
+        public const int VolumePopupCloseDelayMilliseconds = 200;
+        public const string Previous = "Previous track";
+        public const string Next = "Next track";
+        public const string ShuffleOn = "Shuffle: on";
+        public const string ShuffleOff = "Shuffle: off";
+        public const string RepeatOff = "Repeat: off";
+        public const string RepeatAll = "Repeat: playlist";
+        public const string RepeatOne = "Repeat: one track";
+        public const string RepeatOneBadge = "1";
+        public const string Seek = "Seek";
+        public const string RemainingTimeFormat = "-{0}";
         public const double DefaultVolume = 0.1;
         public const int ConnectionTimeoutSeconds = 40;
     }

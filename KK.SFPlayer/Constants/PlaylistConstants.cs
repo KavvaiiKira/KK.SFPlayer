@@ -18,6 +18,10 @@ namespace KK.SFPlayer.Constants
         public const string DurationOrder = "Duration";
         public const string NewestOrder = "Recently added";
         public const string OldestOrder = "Oldest added";
-        public const string Sort = "Sort loaded tracks";
+        public const string Sort = "Sort tracks";
+        public const string Sorting = "Sorting playlist…";
+        public const string CacheRefreshFailed = "Could not refresh the playlist. Press F5 to retry.";
+        public const string CacheWriteFailed = "Could not save the playlist cache.";
+        public const string TrackRemoved = "This track is no longer in the playlist. Refresh and try again.";
     }
 }

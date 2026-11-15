@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
-using KK.SFPlayer.Models;
+using KK.SFPlayer.Models.Records;
 using SpotifyAPI.Web;
 
 namespace KK.SFPlayer.Services
@@ -16,6 +16,8 @@ namespace KK.SFPlayer.Services
 
         private readonly string _directory;
         private readonly object _sync = new();
+
+        internal string DataDirectory => _directory;
 
         public SettingsStore(string? directory = null) => _directory = directory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -93,6 +95,5 @@ namespace KK.SFPlayer.Services
             File.Move(path + TemporarySuffix, path, true);
         }
 
-        private sealed record SavedToken(string ClientId, PKCETokenResponse Token);
     }
 }

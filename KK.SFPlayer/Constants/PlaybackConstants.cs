@@ -11,7 +11,6 @@ namespace KK.SFPlayer.Constants
         public const string OpenInSpotify = "Open in Spotify";
         public const string NoPlaylists = "No playlists found.";
         public const string NoTracks = "No available tracks in this playlist.";
-        public const string Playing = StreamingConstants.PlaybackStarted;
         public const string NoDevice = StreamingConstants.DeviceUnavailable;
         public const string UnknownArtist = "Unknown artist";
         public const string UnnamedPlaylist = "Untitled playlist";

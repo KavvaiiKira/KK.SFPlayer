@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using KK.SFPlayer.Constants;
 using KK.SFPlayer.Models;
+using KK.SFPlayer.Models.Records;
 using KK.SFPlayer.Services;
 
 namespace KK.SFPlayer.ViewModels
@@ -69,8 +70,27 @@ namespace KK.SFPlayer.ViewModels
 
         internal void SetSort(int sort)
         {
+            if (_sort == sort)
+            {
+                return;
+            }
+
             _sort = sort;
-            UpdatePreview();
+            InvalidateTracks();
+        }
+
+        internal void InvalidateTracks()
+        {
+            _knownTracks.Clear();
+            _isLoaded = false;
+            Tracks = [];
+            TotalDuration = string.Empty;
+            IsEmpty = false;
+            _request?.Cancel();
+            if (_isVisible && !IsLoading)
+            {
+                _ = EnsureLoadedAsync();
+            }
         }
 
         internal void UseTracks(IEnumerable<TrackInfo> tracks, string? totalDuration = null, bool replace = false)
@@ -154,7 +174,7 @@ namespace KK.SFPlayer.ViewModels
                     }
                     else
                     {
-                        var page = await _player.GetTrackPageAsync(Playlist.Id, 0, request.Token);
+                        var page = await _player.GetSortedTrackPageAsync(Playlist.Id, _sort, 0, request.Token);
                         request.Token.ThrowIfCancellationRequested();
                         UseTracks(page.Tracks);
                     }

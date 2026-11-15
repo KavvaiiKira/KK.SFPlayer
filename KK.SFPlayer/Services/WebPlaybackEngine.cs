@@ -1,12 +1,15 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using KK.SFPlayer.Constants;
 using Microsoft.Web.WebView2.Core;
+using KK.SFPlayer.Models.Records;
 
 namespace KK.SFPlayer.Services
 {
@@ -15,6 +18,9 @@ namespace KK.SFPlayer.Services
         private readonly Func<IntPtr> _getWindowHandle;
         private readonly string _profileDirectory;
         private CoreWebView2Controller? _controller;
+        private CoreWebView2Environment? _environment;
+        private readonly DispatcherTimer _brandingTimer = new() { Interval = TimeSpan.FromSeconds(AudioSessionConstants.RefreshIntervalSeconds) };
+        private bool _isBranding;
         private CancellationTokenSource? _session;
         private Task<string>? _connection;
         private TaskCompletionSource<string>? _ready;
@@ -25,6 +31,7 @@ namespace KK.SFPlayer.Services
         public WebPlaybackEngine(Func<IntPtr> getWindowHandle, string? profileDirectory = null)
         {
             _getWindowHandle = getWindowHandle;
+            _brandingTimer.Tick += OnBrandingTick;
             _profileDirectory = profileDirectory ?? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 ApplicationConstants.AppName,
@@ -35,14 +42,62 @@ namespace KK.SFPlayer.Services
 
         public event EventHandler<bool>? PlayingChanged;
 
-        public void TogglePause()
+        public event EventHandler<PlaybackModes>? ModesChanged;
+
+        public event EventHandler<PlaybackProgress>? ProgressChanged;
+
+        private async void OnBrandingTick(object? sender, EventArgs e)
+        {
+            var session = _session;
+            if (_isBranding || _environment is null || session is null || session.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _isBranding = true;
+            try
+            {
+                var processIds = _environment.GetProcessInfos().Select(process => process.ProcessId).Append(Environment.ProcessId).ToHashSet();
+                var cancellationToken = session.Token;
+                await Task.Run(() => AudioSessionBranding.Apply(processIds, ApplicationConstants.AppName, AudioSessionBranding.IconLocation, cancellationToken), cancellationToken);
+            }
+            catch (OperationCanceledException) when (session.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception) when (exception is COMException or InvalidOperationException)
+            {
+                // Mixer metadata is optional; device changes must not interrupt playback.
+            }
+            finally
+            {
+                _isBranding = false;
+            }
+        }
+
+        public void Seek(int positionMs)
         {
             if (_controller is null || _connection?.IsCompletedSuccessfully != true)
             {
                 throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
             }
 
-            _controller.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "toggle" }));
+            _controller.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "seek", position = Math.Max(0, positionMs) }));
+        }
+
+        public void NextTrack() => SendTransportCommand("next");
+
+        public void PreviousTrack() => SendTransportCommand("previous");
+
+        public void TogglePause() => SendTransportCommand("toggle");
+
+        private void SendTransportCommand(string command)
+        {
+            if (_controller is null || _connection?.IsCompletedSuccessfully != true)
+            {
+                throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
+            }
+
+            _controller.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = command }));
         }
 
         public void SetVolume(double volume)
@@ -97,6 +152,7 @@ namespace KK.SFPlayer.Services
                     null,
                     _profileDirectory,
                     new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required"));
+                _environment = environment;
                 timeout.Token.ThrowIfCancellationRequested();
                 controller = await environment.CreateCoreWebView2ControllerAsync(handle);
                 timeout.Token.ThrowIfCancellationRequested();
@@ -113,6 +169,8 @@ namespace KK.SFPlayer.Services
                 browser.NavigationStarting += (_, args) => args.Cancel = args.Uri != StreamingConstants.Page;
                 browser.NewWindowRequested += (_, args) => args.Handled = true;
                 browser.WebMessageReceived += OnWebMessageReceived;
+                browser.IsDocumentPlayingAudioChanged += (sender, _) => OnBrandingTick(sender, EventArgs.Empty);
+                _brandingTimer.Start();
                 browser.ProcessFailed += (sender, _) =>
                 {
                     if (ReferenceEquals(sender, _controller?.CoreWebView2))
@@ -146,6 +204,12 @@ namespace KK.SFPlayer.Services
             {
                 if (!ready.Task.IsCompletedSuccessfully || cancellationToken.IsCancellationRequested)
                 {
+                    if (ReferenceEquals(_ready, ready))
+                    {
+                        _brandingTimer.Stop();
+                        _environment = null;
+                    }
+
                     if (controller is not null && (!attached || ReferenceEquals(_controller, controller)))
                     {
                         controller.Close();
@@ -202,6 +266,12 @@ namespace KK.SFPlayer.Services
                         break;
                     case "state":
                         PlayingChanged?.Invoke(this, root.GetProperty("playing").GetBoolean());
+                        ModesChanged?.Invoke(this, new PlaybackModes(root.GetProperty("shuffle").GetBoolean(), root.GetProperty("repeatMode").GetInt32()));
+                        ProgressChanged?.Invoke(this, new PlaybackProgress(
+                            root.GetProperty("position").GetInt32(), root.GetProperty("duration").GetInt32(),
+                            root.GetProperty("canSeek").GetBoolean(), root.GetProperty("trackUri").GetString(),
+                            root.GetProperty("contextUri").GetString(), root.GetProperty("trackName").GetString(),
+                            root.GetProperty("artists").GetString()));
                         break;
                     case "error":
                         Fail(root.GetProperty("code").GetString() switch
@@ -249,6 +319,8 @@ namespace KK.SFPlayer.Services
 
         private void ResetCore()
         {
+            _brandingTimer.Stop();
+            _environment = null;
             _session?.Cancel();
             _session?.Dispose();
             _session = null;

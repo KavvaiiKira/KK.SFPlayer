@@ -1,5 +1,36 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="Button.icon-button.transport">
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.track-row">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AppSurfaceRaisedBrush}" />
+    </Style>
+    <Style Selector=":is(TextBlock).track-title">
+        <Setter Property="Opacity" Value="0.78" />
+    </Style>
+    <Style Selector="PathIcon.playing-indicator, PathIcon.paused-indicator">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Border.track-row:pointerover">
+        <Setter Property="Background" Value="{DynamicResource AppSurfaceRaisedBrush}" />
+    </Style>
+    <Style Selector="Border.track-row.current, Border.track-row.current:pointerover">
+        <Setter Property="Background" Value="{DynamicResource AppSurfaceHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AppPrimaryBrush}" />
+    </Style>
+    <Style Selector="Border.track-row.current :is(TextBlock).track-title">
+        <Setter Property="Foreground" Value="{DynamicResource AppPrimaryHoverBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border.track-row.current.playing PathIcon.playing-indicator, Border.track-row.current:not(.playing) PathIcon.paused-indicator">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
     <Style Selector="Button.playlist-title">
         <Setter Property="MinHeight" Value="24" />
         <Setter Property="Padding" Value="0" />
@@ -79,6 +110,67 @@
     </Style>
     <Style Selector="Grid.playlist-cover:pointerover Button.cover-play, Grid.playlist-cover Button.cover-play:focus-visible">
         <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Slider.vertical-volume">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid Background="Transparent">
+                    <Border Width="2" Margin="0,5" HorizontalAlignment="Center" CornerRadius="1"
+                            Background="{DynamicResource AppBorderBrush}" />
+                    <Track Name="PART_Track" Orientation="Vertical"
+                           Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}"
+                           Value="{TemplateBinding Value, Mode=TwoWay}">
+                        <Track.DecreaseButton>
+                            <RepeatButton Name="PART_DecreaseButton" Focusable="False" MinWidth="0" MinHeight="0" Padding="0"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                <RepeatButton.Template>
+                                    <ControlTemplate>
+                                        <Grid Background="Transparent">
+                                            <Border Name="VolumeFill" Width="2" Margin="0,-5,0,5"
+                                                    HorizontalAlignment="Center" CornerRadius="1"
+                                                    Background="{DynamicResource AppPrimaryBrush}" />
+                                        </Grid>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                        </Track.DecreaseButton>
+                        <Track.Thumb>
+                            <Thumb Width="24" Height="10">
+                                <Thumb.Template>
+                                    <ControlTemplate>
+                                        <Grid Background="Transparent">
+                                            <Border Name="VolumeKnob" Width="8" Height="8"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    Background="{DynamicResource AppPrimaryBrush}" CornerRadius="5" />
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Track.Thumb>
+                        <Track.IncreaseButton>
+                            <RepeatButton Name="PART_IncreaseButton" Focusable="False" MinWidth="0" MinHeight="0" Padding="0"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                <RepeatButton.Template>
+                                    <ControlTemplate>
+                                        <Border Background="Transparent" />
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                        </Track.IncreaseButton>
+                    </Track>
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Slider.vertical-volume:pointerover /template/ Thumb /template/ Border#VolumeKnob">
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="Background" Value="{DynamicResource AppPrimaryHoverBrush}" />
+    </Style>
+    <Style Selector="Slider.vertical-volume:pointerover /template/ RepeatButton /template/ Border#VolumeFill">
+        <Setter Property="Background" Value="{DynamicResource AppPrimaryHoverBrush}" />
     </Style>
     <Style Selector="Slider.volume-slider">
         <Setter Property="MinHeight" Value="0" />
