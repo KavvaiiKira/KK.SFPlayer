@@ -24,6 +24,46 @@ namespace KK.SFPlayer.Tests
         private const string TokenJson = """{"access_token":"new-access","refresh_token":"rotated-refresh","token_type":"Bearer","expires_in":3600}""";
         private const string TrackJson = """{"type":"track","uri":"spotify:track:one","name":"First track","duration_ms":185000,"artists":[{"name":"Test artist"}],"album":{"images":[{"url":"https://example.com/cover.png"}]}}""";
 
+        [Fact]
+        public async Task RestorePreparesPlaybackWithoutWaitingOrStartingMusic()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected Spotify request."));
+            context.SeedToken(expired: false);
+            context.Playback.Ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Assert.True(await context.Player.RestoreAsync(ClientId, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2)));
+            Assert.Equal(1, context.Playback.DeviceRequests);
+            Assert.Equal("old-access", context.Playback.Token);
+            Assert.False(context.Playback.Ready.Task.IsCompleted);
+            context.Playback.Ready.SetResult("local-device");
+            await context.Player.WaitForBackgroundWorkAsync();
+        }
+
+        [Fact]
+        public async Task FailedPreparationDoesNotPreventRestoringLibraryOrRetryingPlay()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            using var context = new TestContext(request => request.Path == "/v1/me/player/play" ?
+                new HttpResponseMessage(HttpStatusCode.NoContent) :
+                throw new InvalidOperationException("Unexpected Spotify request."));
+            context.SeedToken(expired: false);
+            context.Playback.Ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            context.Playback.Ready.SetException(new InvalidOperationException("Preparation failed."));
+            Assert.True(await context.Player.RestoreAsync(ClientId, CancellationToken.None));
+            await context.Player.WaitForBackgroundWorkAsync();
+            context.Playback.Ready = null;
+            await context.Player.PlayAsync("spotify:playlist:first", 0, CancellationToken.None);
+            Assert.Equal(2, context.Playback.DeviceRequests);
+        }
+
         [Theory]
         [InlineData(false, 0, 0)]
         [InlineData(false, 1, 1)]
@@ -1101,6 +1141,7 @@ namespace KK.SFPlayer.Tests
 
         private sealed class FakePlaybackEngine : ILocalPlaybackEngine
         {
+            public int DeviceRequests { get; private set; }
             public event EventHandler<PlaybackProgress>? ProgressChanged;
 
             public List<int> Seeks { get; } = [];
@@ -1143,6 +1184,7 @@ namespace KK.SFPlayer.Tests
 
             public async Task<string> GetDeviceAsync(Func<CancellationToken, Task<string>> getAccessToken, CancellationToken cancellationToken)
             {
+                DeviceRequests++;
                 Token = await getAccessToken(cancellationToken);
                 return Ready is null ? "local-device" : await Ready.Task.WaitAsync(cancellationToken);
             }

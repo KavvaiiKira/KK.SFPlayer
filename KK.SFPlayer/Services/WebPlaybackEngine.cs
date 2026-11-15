@@ -23,6 +23,8 @@ namespace KK.SFPlayer.Services
         private bool _isBranding;
         private CancellationTokenSource? _session;
         private Task<string>? _connection;
+        private Task? _initialization;
+        private TaskCompletionSource? _pageReady;
         private TaskCompletionSource<string>? _ready;
         private Func<CancellationToken, Task<string>>? _getAccessToken;
         private bool _disposed;
@@ -124,17 +126,61 @@ namespace KK.SFPlayer.Services
 
             if (_connection is null || _connection.IsFaulted || _connection.IsCanceled)
             {
-                ResetCore();
-                _session = new CancellationTokenSource();
+                if (_connection is not null)
+                {
+                    ResetCore();
+                }
+
                 _getAccessToken = getAccessToken;
                 _ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _connection = ConnectAsync(_ready, _session.Token);
+                _connection = ConnectAsync(_ready, cancellationToken);
             }
 
             return await _connection.WaitAsync(cancellationToken);
         }
 
         private async Task<string> ConnectAsync(TaskCompletionSource<string> ready, CancellationToken cancellationToken)
+        {
+            await InitializeAsync(cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_session!.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(StreamingConstants.ConnectionTimeoutSeconds));
+            _controller!.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                type = "connect",
+                name = ApplicationConstants.AppName,
+                volume = _volume,
+            }));
+            return await ready.Task.WaitAsync(timeout.Token);
+        }
+
+        public async Task InitializeAsync(CancellationToken cancellationToken = default)
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => InitializeAsync(cancellationToken));
+                return;
+            }
+
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!OperatingSystem.IsWindows())
+            {
+                throw new InvalidOperationException(StreamingConstants.Unsupported);
+            }
+
+            if (_initialization is null || _initialization.IsFaulted || _initialization.IsCanceled)
+            {
+                _session?.Cancel();
+                _session?.Dispose();
+                _session = new CancellationTokenSource();
+                _pageReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _initialization = CreateBrowserAsync(_pageReady, _session.Token);
+            }
+
+            await _initialization.WaitAsync(cancellationToken);
+        }
+
+        private async Task CreateBrowserAsync(TaskCompletionSource ready, CancellationToken cancellationToken)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(StreamingConstants.ConnectionTimeoutSeconds));
@@ -190,7 +236,7 @@ namespace KK.SFPlayer.Services
                     Path.Combine(AppContext.BaseDirectory, "Assets", "Playback"),
                     CoreWebView2HostResourceAccessKind.DenyCors);
                 browser.Navigate(StreamingConstants.Page);
-                return await ready.Task.WaitAsync(timeout.Token);
+                await ready.Task.WaitAsync(timeout.Token);
             }
             catch (WebView2RuntimeNotFoundException)
             {
@@ -204,7 +250,7 @@ namespace KK.SFPlayer.Services
             {
                 if (!ready.Task.IsCompletedSuccessfully || cancellationToken.IsCancellationRequested)
                 {
-                    if (ReferenceEquals(_ready, ready))
+                    if (ReferenceEquals(_pageReady, ready))
                     {
                         _brandingTimer.Stop();
                         _environment = null;
@@ -240,12 +286,7 @@ namespace KK.SFPlayer.Services
                 switch (root.GetProperty("type").GetString())
                 {
                     case "loaded":
-                        browser!.PostWebMessageAsJson(JsonSerializer.Serialize(new
-                        {
-                            type = "connect",
-                            name = ApplicationConstants.AppName,
-                            volume = _volume,
-                        }));
+                        _pageReady?.TrySetResult();
                         break;
                     case "token":
                         var requestId = root.GetProperty("id").GetInt32();
@@ -265,7 +306,13 @@ namespace KK.SFPlayer.Services
 
                         break;
                     case "state":
-                        PlayingChanged?.Invoke(this, root.GetProperty("playing").GetBoolean());
+                        var playing = root.GetProperty("playing").GetBoolean();
+                        if (playing)
+                        {
+                            OnBrandingTick(this, EventArgs.Empty);
+                        }
+
+                        PlayingChanged?.Invoke(this, playing);
                         ModesChanged?.Invoke(this, new PlaybackModes(root.GetProperty("shuffle").GetBoolean(), root.GetProperty("repeatMode").GetInt32()));
                         ProgressChanged?.Invoke(this, new PlaybackProgress(
                             root.GetProperty("position").GetInt32(), root.GetProperty("duration").GetInt32(),
@@ -299,6 +346,7 @@ namespace KK.SFPlayer.Services
 
         private void Fail(string message)
         {
+            _pageReady?.TrySetException(new InvalidOperationException(message));
             if (_ready?.TrySetException(new InvalidOperationException(message)) != true)
             {
                 _connection = null;
@@ -326,6 +374,9 @@ namespace KK.SFPlayer.Services
             _session = null;
             _ready?.TrySetCanceled();
             _ready = null;
+            _pageReady?.TrySetCanceled();
+            _pageReady = null;
+            _initialization = null;
             _connection = null;
             _getAccessToken = null;
             if (_controller is not null)

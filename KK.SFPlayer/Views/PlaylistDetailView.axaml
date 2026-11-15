@@ -52,7 +52,7 @@
             </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="models:TrackInfo">
-                    <Border Classes="track-row" Height="32" Margin="0,0,12,0" BorderThickness="3,0,0,1"
+                    <Border Classes="track-row" Height="32" Margin="0,0,12,0" Padding="0,0,10,0" BorderThickness="3,0,0,1"
                             Tapped="OnTrackTapped">
                         <Grid ColumnDefinitions="18,*,12,Auto">
                             <Grid Width="10" Height="12" VerticalAlignment="Center">

@@ -11,7 +11,22 @@ function createBridge(connected = true) {
     const listeners = {};
     const players = [];
     const timers = new Set();
+    const audio = { started: 0, stopped: 0, closed: 0, resumed: 0, offset: null };
     const window = {
+        AudioContext: class {
+            destination = {};
+            createConstantSource() {
+                const source = {
+                    offset: { value: 1 },
+                    connect: () => { audio.offset = source.offset.value; },
+                    start: () => { audio.started++; },
+                    stop: () => { audio.stopped++; }
+                };
+                return source;
+            }
+            resume() { audio.resumed++; return Promise.resolve(); }
+            close() { audio.closed++; return Promise.resolve(); }
+        },
         chrome: { webview: {
             postMessage: message => messages.push(message),
             addEventListener: (name, callback) => { listeners[name] = callback; }
@@ -50,11 +65,23 @@ function createBridge(connected = true) {
         clearInterval: timer => timers.delete(timer)
     });
     return {
-        window, players, messages, timers,
+        window, players, messages, timers, audio,
         send: data => listeners.message({ data }),
         close: () => listeners.pagehide()
     };
 }
+
+test("idle audio uses the playback WebView without authorizing or starting Spotify", () => {
+    const bridge = createBridge();
+    assert.equal(bridge.audio.started, 1);
+    assert.equal(bridge.audio.resumed, 1);
+    assert.equal(bridge.audio.offset, 0);
+    assert.equal(bridge.players.length, 0);
+    assert.equal(bridge.messages.some(message => message.type === "token"), false);
+    bridge.close();
+    assert.equal(bridge.audio.stopped, 1);
+    assert.equal(bridge.audio.closed, 1);
+});
 
 test("SDK and native configuration can arrive in either order without duplicate players", () => {
     for (const sdkFirst of [true, false]) {

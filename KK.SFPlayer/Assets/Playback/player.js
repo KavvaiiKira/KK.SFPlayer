@@ -8,9 +8,25 @@
     let volume = 0.1;
     let progressTimer;
     let seekGeneration = 0;
+    let audioContext;
+    let silentSource;
     const callbacks = new Map();
     const send = message => window.chrome.webview.postMessage(message);
     const clampVolume = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.1));
+
+    function initializeAudio() {
+        try {
+            audioContext = new window.AudioContext();
+            silentSource = audioContext.createConstantSource();
+            silentSource.offset.value = 0;
+            silentSource.connect(audioContext.destination);
+            silentSource.start();
+            audioContext.resume().catch(() => {});
+        } catch {
+            // Spotify playback remains available if idle audio initialization fails.
+        }
+        send({ type: "loaded" });
+    }
 
     function publishState(state) {
         if (!state) return;
@@ -96,6 +112,8 @@
         callbacks.clear();
         clearInterval(progressTimer);
         if (player) player.disconnect();
+        if (silentSource) silentSource.stop();
+        if (audioContext) audioContext.close().catch(() => {});
     });
-    send({ type: "loaded" });
+    initializeAudio();
 })();

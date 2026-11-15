@@ -215,7 +215,7 @@ namespace KK.SFPlayer.Tests
                 var durationLabel = currentRow.GetVisualDescendants().OfType<TextBlock>().First(text => text.Text == "3:00");
                 var tracksList = detail.FindControl<ListBox>("TracksList")!;
                 var durationRight = durationLabel.TranslatePoint(new Point(durationLabel.Bounds.Width, 0), tracksList)!.Value.X;
-                Assert.True(durationRight <= tracksList.Bounds.Width - 12);
+                Assert.True(durationRight <= tracksList.Bounds.Width - 22);
                 Assert.Equal(1, currentRow.GetVisualDescendants().OfType<PathIcon>().Single(icon => icon.Classes.Contains("playing-indicator")).Opacity);
                 player.TogglePause();
                 Assert.Contains("current", currentRow.Classes);

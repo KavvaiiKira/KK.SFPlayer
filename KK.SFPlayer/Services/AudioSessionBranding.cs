@@ -10,7 +10,7 @@ namespace KK.SFPlayer.Services
 {
     internal static class AudioSessionBranding
     {
-        public static string IconLocation => $"{Path.Combine(AppContext.BaseDirectory, ApplicationConstants.AppName + ".exe")},0";
+        public static string IconLocation => $"{Path.Combine(AppContext.BaseDirectory, ApplicationConstants.AppName + ".exe")},-{AudioSessionConstants.IconResourceId}";
 
         public static int Apply(IReadOnlySet<int> processIds, string name, string iconPath, CancellationToken cancellationToken)
         {
@@ -29,7 +29,9 @@ namespace KK.SFPlayer.Services
                     cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
-                        var sessions = device.AudioSessionManager.Sessions;
+                        var manager = device.AudioSessionManager;
+                        manager.RefreshSessions();
+                        var sessions = manager.Sessions;
                         for (var index = 0; index < sessions.Count; index++)
                         {
                             cancellationToken.ThrowIfCancellationRequested();

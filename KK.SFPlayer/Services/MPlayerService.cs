@@ -296,7 +296,39 @@ namespace KK.SFPlayer.Services
             {
                 _trackIndexes[cached.PlaylistId] = new TrackIndex(cached.Tracks, cached.SnapshotId);
             }
+            PreparePlayback();
             return true;
+        }
+
+        private void PreparePlayback()
+        {
+            if (_playback is null || !OperatingSystem.IsWindows() || !HasStreamingConsent())
+            {
+                return;
+            }
+
+            _backgroundTasks.Add(PreparePlaybackAsync(_background.Token));
+        }
+
+        private bool HasStreamingConsent()
+        {
+            var scopes = (_token?.Scope ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return new[] { Scopes.Streaming, Scopes.UserReadEmail, Scopes.UserReadPrivate }.All(scopes.Contains);
+        }
+
+        private async Task PreparePlaybackAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _playback!.GetDeviceAsync(GetAccessTokenAsync, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception)
+            {
+                // Preparation is optional; Play retries initialization and reports any failure.
+            }
         }
 
         public async Task ConnectAsync(string clientId, CancellationToken cancellationToken)
@@ -360,6 +392,7 @@ namespace KK.SFPlayer.Services
                     _clientId = clientId;
                     _token = token;
                     _client = new SpotifyClient(_configuration.WithToken(token.AccessToken));
+                    PreparePlayback();
                     return;
                 }
             }
@@ -706,8 +739,7 @@ namespace KK.SFPlayer.Services
             }
 
             await GetClientAsync(cancellationToken);
-            var scopes = (_token?.Scope ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (!new[] { Scopes.Streaming, Scopes.UserReadEmail, Scopes.UserReadPrivate }.All(scopes.Contains))
+            if (!HasStreamingConsent())
             {
                 throw new InvalidOperationException(StreamingConstants.Reauthorize);
             }
