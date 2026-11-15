@@ -191,8 +191,20 @@ namespace KK.SFPlayer.Tests
                 await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[1]);
             }
 
+            if (!openPlaylist)
+            {
+                await viewModel.Library.PlaylistCards[0].EnsureLoadedAsync();
+            }
+
+            var trackRequestsBeforePlay = context.Handler.Requests.Count(item => item.Path.EndsWith("/items", StringComparison.Ordinal));
             Assert.False(viewModel.Playback.HasPlayback);
             await viewModel.Playback.TogglePlaybackCommand.ExecuteAsync(null);
+
+            if (!openPlaylist)
+            {
+                Assert.Equal(trackRequestsBeforePlay,
+                    context.Handler.Requests.Count(item => item.Path.EndsWith("/items", StringComparison.Ordinal)));
+            }
 
             var request = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
             using var body = JsonDocument.Parse(request.Body);
@@ -209,23 +221,13 @@ namespace KK.SFPlayer.Tests
             }
             Assert.True(viewModel.Playback.HasPlayback);
             await viewModel.Playback.NextTrackCommand.ExecuteAsync(null);
-            using var nextBody = JsonDocument.Parse(context.Handler.Requests.Last(item => item.Path == "/v1/me/player/play").Body);
-            if (sort == 0)
-            {
-                Assert.Equal(1, nextBody.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
-                Assert.Equal(openPlaylist ? "spotify:playlist:second" : "spotify:playlist:first", nextBody.RootElement.GetProperty("context_uri").GetString());
-            }
-            else
-            {
-                var offset = nextBody.RootElement.GetProperty("offset").GetProperty("position").GetInt32();
-                Assert.Equal(1, offset);
-                Assert.Equal($"spotify:track:{1 - expectedPosition}", nextBody.RootElement.GetProperty("uris")[offset].GetString());
-            }
-
-            Assert.Equal(0, context.Playback.NextCount);
-            var requestsBeforeEnd = context.Handler.Requests.Count;
+            Assert.Equal(1, context.Playback.NextCount);
+            Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
+            var requestsBeforeNext = context.Handler.Requests.Count;
+            context.Playback.PublishProgress(new PlaybackProgress(1000, 180000, true, $"spotify:track:{expectedPosition}"));
             await viewModel.Playback.NextTrackCommand.ExecuteAsync(null);
-            Assert.Equal(requestsBeforeEnd, context.Handler.Requests.Count);
+            Assert.Equal(2, context.Playback.NextCount);
+            Assert.Equal(requestsBeforeNext, context.Handler.Requests.Count);
         }
 
         [Fact]
@@ -941,18 +943,12 @@ namespace KK.SFPlayer.Tests
 
             context.Playback.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:2"));
             Assert.Equal("spotify:playlist:one", viewModel.Playback.CurrentPlaylistUri);
+            var requestsBeforeSkip = context.Handler.Requests.Count;
             await viewModel.Playback.NextTrackCommand.ExecuteAsync(null);
-            using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
-            {
-                Assert.Equal(2, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
-            }
-
-            Assert.Equal(0, context.Playback.NextCount);
+            Assert.Equal(1, context.Playback.NextCount);
             await viewModel.Playback.PreviousTrackCommand.ExecuteAsync(null);
-            using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
-            {
-                Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
-            }
+            Assert.Equal(1, context.Playback.PreviousCount);
+            Assert.Equal(requestsBeforeSkip, context.Handler.Requests.Count);
 
             viewModel.Playlist.BackCommand.Execute(null);
             await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[1]);

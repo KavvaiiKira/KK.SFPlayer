@@ -159,10 +159,14 @@ namespace KK.SFPlayer.ViewModels
                 }
 
                 await _player.EnsurePlaylistFreshAsync(playlist.Id, cancellationToken);
-                var page = await _player.GetSortedTrackPageAsync(playlist.Id, GetSort(playlist.Id), 0, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
-                card.UseTracks(page.Tracks, replace: true);
-                if (page.Tracks.FirstOrDefault() is not { } first)
+                if (card.Tracks.Count == 0)
+                {
+                    var page = await _player.GetSortedTrackPageAsync(playlist.Id, GetSort(playlist.Id), 0, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    card.UseTracks(page.Tracks, replace: true);
+                }
+
+                if (card.Tracks.FirstOrDefault() is not { } first)
                 {
                     throw new InvalidOperationException(PlaybackConstants.NoTracks);
                 }

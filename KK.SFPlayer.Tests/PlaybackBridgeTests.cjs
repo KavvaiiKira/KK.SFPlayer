@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const settle = () => new Promise(resolve => setImmediate(resolve));
 
 const source = fs.readFileSync(path.join(__dirname, "../KK.SFPlayer/Assets/Playback/player.js"), "utf8");
 
@@ -50,6 +51,7 @@ function createBridge(connected = true) {
         disconnect() { this.disconnected = true; }
         togglePlay() {
             this.paused = !this.paused;
+            this.state.paused = this.paused;
             this.listeners.player_state_changed({ paused: this.paused });
             return Promise.resolve();
         }
@@ -170,23 +172,26 @@ test("playback starts at ten percent and volume supports mute and clamping", () 
     assert.equal(player.volume, 1);
 });
 
-test("pause and resume report actual player state", () => {
+test("pause and resume report actual player state", async () => {
     const bridge = createBridge();
     bridge.send({ type: "connect", name: "KK.SFPlayer" });
     bridge.window.onSpotifyWebPlaybackSDKReady();
     bridge.send({ type: "toggle" });
+    await settle();
     assert.equal(bridge.messages.at(-1).type, "state");
     assert.equal(bridge.messages.at(-1).playing, false);
     bridge.send({ type: "toggle" });
+    await settle();
     assert.equal(bridge.messages.at(-1).playing, true);
 });
 
-test("next and previous control the local SDK player and modes come from its state", () => {
+test("next and previous control the local SDK player and modes come from its state", async () => {
     const bridge = createBridge();
     bridge.send({ type: "connect", name: "KK.SFPlayer" });
     bridge.window.onSpotifyWebPlaybackSDKReady();
     bridge.send({ type: "next" });
     bridge.send({ type: "previous" });
+    await settle();
     const player = bridge.players[0];
     assert.equal(player.nextCount, 1);
     assert.equal(player.previousCount, 1);
@@ -216,8 +221,7 @@ test("progress polls local SDK state, supports seek and stops polling when close
     assert.equal(bridge.messages.at(-1).duration, 180000);
     assert.equal(bridge.messages.at(-1).canSeek, true);
     bridge.send({ type: "seek", position: 90000 });
-    await Promise.resolve();
-    await Promise.resolve();
+    await settle();
     assert.equal(player.state.position, 90000);
     assert.equal(bridge.messages.at(-1).position, 90000);
     player.state.paused = true;
@@ -245,4 +249,60 @@ test("a delayed progress poll cannot overwrite a newer track event", async () =>
     completePoll(player.state);
     await pending;
     assert.equal(bridge.messages.at(-1).trackUri, "spotify:track:new");
+});
+
+test("transport commands wait for each other and stale polls cannot roll a skip back", async () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    const player = bridge.players[0];
+    player.listeners.ready({ device_id: "local-device" });
+    let finishPoll;
+    player.getCurrentState = () => new Promise(resolve => { finishPoll = resolve; });
+    const poll = [...bridge.timers][0]();
+    let finishNext;
+    const calls = [];
+    player.nextTrack = () => {
+        calls.push("next");
+        return new Promise(resolve => { finishNext = resolve; });
+    };
+    player.previousTrack = () => { calls.push("previous"); return Promise.resolve(); };
+    bridge.send({ type: "next" });
+    bridge.send({ type: "previous" });
+    await settle();
+    assert.deepEqual(calls, ["next"]);
+    player.listeners.player_state_changed({
+        paused: false, position: 100, duration: 180000,
+        track_window: { current_track: { uri: "spotify:track:new" } }
+    });
+    finishPoll(player.state);
+    await poll;
+    assert.equal(bridge.messages.at(-1).trackUri, "spotify:track:new");
+    finishNext();
+    await settle();
+    assert.deepEqual(calls, ["next", "previous"]);
+    bridge.close();
+});
+
+test("a rejected transport command does not block following commands", async () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    const player = bridge.players[0];
+    player.nextTrack = () => Promise.reject(new Error("failed"));
+    bridge.send({ type: "next" });
+    bridge.send({ type: "previous" });
+    await settle();
+    assert.equal(player.previousCount, 1);
+    assert.equal(bridge.messages.filter(message => message.type === "error").length, 1);
+});
+
+test("closing the page cancels queued transport commands", async () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    bridge.send({ type: "next" });
+    bridge.close();
+    await settle();
+    assert.equal(bridge.players[0].nextCount, 0);
 });

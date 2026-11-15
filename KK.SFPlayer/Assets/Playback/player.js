@@ -8,6 +8,9 @@
     let volume = 0.1;
     let progressTimer;
     let stateGeneration = 0;
+    let transportQueue = Promise.resolve();
+    let pendingTransports = 0;
+    let closed = false;
     let audioContext;
     let silentSource;
     const callbacks = new Map();
@@ -46,10 +49,27 @@
     }
 
     function refreshState() {
+        if (closed || pendingTransports > 0) return Promise.resolve();
         const generation = stateGeneration;
         return player.getCurrentState().then(state => {
-            if (generation === stateGeneration) publishState(state);
+            if (!closed && pendingTransports === 0 && generation === stateGeneration) publishState(state);
         }).catch(() => {});
+    }
+
+    function enqueueTransport(action) {
+        pendingTransports++;
+        stateGeneration++;
+        transportQueue = transportQueue.then(async () => {
+            if (!closed) await action();
+        }).catch(() => {
+            if (!closed) send({ type: "error", code: "playback_error" });
+        }).finally(() => {
+            pendingTransports--;
+            stateGeneration++;
+        });
+        transportQueue.then(() => {
+            if (!closed && pendingTransports === 0) refreshState();
+        });
     }
 
     function connect() {
@@ -97,21 +117,20 @@
             callbacks.delete(data.id);
             if (callback) callback(data.token);
         } else if (data.type === "toggle" && player) {
-            player.togglePlay().catch(() => send({ type: "error", code: "playback_error" }));
+            enqueueTransport(() => player.togglePlay());
         } else if (data.type === "next" && player) {
-            player.nextTrack().catch(() => send({ type: "error", code: "playback_error" }));
+            enqueueTransport(() => player.nextTrack());
         } else if (data.type === "previous" && player) {
-            player.previousTrack().catch(() => send({ type: "error", code: "playback_error" }));
+            enqueueTransport(() => player.previousTrack());
         } else if (data.type === "seek" && player) {
-            stateGeneration++;
-            player.seek(Math.max(0, Math.floor(Number(data.position) || 0)))
-                .then(refreshState).catch(() => send({ type: "error", code: "playback_error" }));
+            enqueueTransport(() => player.seek(Math.max(0, Math.floor(Number(data.position) || 0))));
         } else if (data.type === "volume") {
             volume = clampVolume(data.volume);
             if (player) player.setVolume(volume).catch(() => send({ type: "error", code: "playback_error" }));
         }
     });
     window.addEventListener("pagehide", () => {
+        closed = true;
         stateGeneration++;
         callbacks.clear();
         clearInterval(progressTimer);
