@@ -35,6 +35,7 @@ namespace KK.SFPlayer.Tests
                 Assert.Equal(2, handler.Requests);
                 await restarted.LoadAsync(new Uri("https://example.com/new-artwork"), client, CancellationToken.None);
                 Assert.Equal(3, handler.Requests);
+                Assert.Empty(Directory.EnumerateFiles(Path.Combine(directory, "ArtworkCache", "Playlists"), "*.tmp"));
             }
             finally
             {

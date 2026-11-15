@@ -266,6 +266,10 @@ namespace KK.SFPlayer.ViewModels
             var trackChanged = _progress.TrackUri != progress.TrackUri || _progress.OriginalTrackUri != progress.OriginalTrackUri;
             var playlistChanged = _progress.ContextUri != progress.ContextUri;
             _progress = progress;
+            if (!IsStarting)
+            {
+                HasPlayback = progress.TrackUri is not null;
+            }
             ArtworkUrl = progress.ArtworkUrl;
             OnPropertyChanged(nameof(HasCurrentTrack));
             NowPlaying = string.IsNullOrWhiteSpace(progress.TrackName) ? string.Empty :
@@ -449,7 +453,7 @@ namespace KK.SFPlayer.ViewModels
         private void OnPlayingChanged(object? sender, bool playing)
         {
             IsPlaying = playing;
-            HasPlayback = true;
+            HasPlayback = playing || _progress.TrackUri is not null;
         }
 
         private async Task DisposeGateAsync()
@@ -466,6 +470,9 @@ namespace KK.SFPlayer.ViewModels
             OnPropertyChanged(nameof(PlaybackTooltip));
             if (e.PropertyName == nameof(PlayerUiState.IsConnected) && !State.IsConnected)
             {
+                _playbackReady?.TrySetException(new InvalidOperationException(AuthenticationConstants.NotConnected));
+                _requestedTrackUri = null;
+                IsPreparing = false;
                 _pendingModes = null;
                 _appliedModes = new PlaybackModes(false, 0);
                 _modeRevision++;

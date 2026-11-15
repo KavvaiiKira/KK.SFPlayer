@@ -32,21 +32,22 @@
     }
 
     function publishState(state) {
-        if (!state) return;
-        const duration = Math.max(0, Math.floor(state.duration || 0));
+        if (closed) return;
+        const current = state || {};
+        const duration = Math.max(0, Math.floor(current.duration || 0));
         send({
-            type: "state", playing: !state.paused,
-            shuffle: !!state.shuffle,
-            repeatMode: Number.isInteger(state.repeat_mode) ? state.repeat_mode : 0,
-            position: Math.max(0, Math.min(duration, Math.floor(state.position || 0))),
+            type: "state", playing: !!state && !current.paused,
+            shuffle: !!current.shuffle,
+            repeatMode: Number.isInteger(current.repeat_mode) ? current.repeat_mode : 0,
+            position: Math.max(0, Math.min(duration, Math.floor(current.position || 0))),
             duration,
-            canSeek: duration > 0 && !state.disallows?.seeking,
-            trackUri: state.track_window?.current_track?.uri || null,
-            originalTrackUri: state.track_window?.current_track?.linked_from?.uri || null,
-            artworkUrl: state.track_window?.current_track?.album?.images?.find(image => image.url)?.url || null,
-            contextUri: state.context?.uri || null,
-            trackName: state.track_window?.current_track?.name || null,
-            artists: state.track_window?.current_track?.artists?.map(artist => artist.name).join(", ") || null
+            canSeek: duration > 0 && !current.disallows?.seeking,
+            trackUri: current.track_window?.current_track?.uri || null,
+            originalTrackUri: current.track_window?.current_track?.linked_from?.uri || null,
+            artworkUrl: current.track_window?.current_track?.album?.images?.find(image => image.url)?.url || null,
+            contextUri: current.context?.uri || null,
+            trackName: current.track_window?.current_track?.name || null,
+            artists: current.track_window?.current_track?.artists?.map(artist => artist.name).join(", ") || null
         });
     }
 

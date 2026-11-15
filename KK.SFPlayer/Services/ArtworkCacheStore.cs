@@ -43,7 +43,7 @@ namespace KK.SFPlayer.Services
                         var name = Path.GetFileName(file);
                         if (name.Length == 64 && name.All(Uri.IsHexDigit))
                         {
-                            File.Delete(file);
+                            TryDelete(file);
                         }
                     }
                 }
@@ -91,17 +91,26 @@ namespace KK.SFPlayer.Services
             {
                 return downloaded;
             }
+            var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
                 Directory.CreateDirectory(_directory);
-                await File.WriteAllBytesAsync(path, downloaded, cancellationToken);
-                foreach (var file in new DirectoryInfo(_directory).EnumerateFiles().OrderByDescending(file => file.LastWriteTimeUtc).Skip(DiskLimit))
+                await File.WriteAllBytesAsync(temporaryPath, downloaded, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(temporaryPath, path, true);
+                foreach (var file in new DirectoryInfo(_directory).EnumerateFiles()
+                    .Where(file => file.Name.Length == 64 && file.Name.All(Uri.IsHexDigit))
+                    .OrderByDescending(file => file.LastWriteTimeUtc).Skip(DiskLimit))
                 {
-                    file.Delete();
+                    TryDelete(file.FullName);
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
+            }
+            finally
+            {
+                TryDelete(temporaryPath);
             }
 
             return downloaded;
@@ -125,9 +134,14 @@ namespace KK.SFPlayer.Services
             {
                 return;
             }
+            TryDelete(GetPath(GetKey(url, version)));
+        }
+
+        private static void TryDelete(string path)
+        {
             try
             {
-                File.Delete(GetPath(GetKey(url, version)));
+                File.Delete(path);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {

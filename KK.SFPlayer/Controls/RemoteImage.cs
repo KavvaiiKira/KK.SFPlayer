@@ -191,9 +191,19 @@ namespace KK.SFPlayer.Controls
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    return;
+                }
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+                {
+                    ShowFailure(ArtworkConstants.ArtworkUnavailable);
+                    return;
+                }
+
                 while (!download.IsCancellationRequested)
                 {
-                    await LoadOnceAsync(url, download);
+                    await LoadOnceAsync(uri, download);
                     if (!AutoRetry || !HasFailed || download.IsCancellationRequested)
                     {
                         return;
@@ -215,21 +225,10 @@ namespace KK.SFPlayer.Controls
             }
         }
 
-        private async Task LoadOnceAsync(string? url, CancellationTokenSource download)
+        private async Task LoadOnceAsync(Uri uri, CancellationTokenSource download)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(url))
-                {
-                    return;
-                }
-
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-                {
-                    ShowFailure(ArtworkConstants.ArtworkUnavailable);
-                    return;
-                }
-
                 await Downloads.WaitAsync(download.Token);
                 try
                 {
@@ -256,10 +255,7 @@ namespace KK.SFPlayer.Controls
             }
             catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException or NotSupportedException)
             {
-                if (url is not null)
-                {
-                    InvalidateCachedArtwork(url);
-                }
+                InvalidateCachedArtwork(uri.AbsoluteUri);
                 ShowFailure(ArtworkConstants.ArtworkInvalid);
             }
         }

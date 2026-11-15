@@ -329,3 +329,20 @@ test("current album artwork is published with playback state", () => {
     });
     assert.equal(bridge.messages.at(-1).artworkUrl, "https://example.com/cover");
 });
+
+test("an inactive SDK session clears stale now-playing state", () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    const player = bridge.players[0];
+    player.listeners.player_state_changed(player.state);
+    assert.equal(bridge.messages.at(-1).playing, true);
+    player.listeners.player_state_changed(null);
+    const cleared = bridge.messages.at(-1);
+    assert.equal(cleared.type, "state");
+    assert.equal(cleared.playing, false);
+    assert.equal(cleared.trackUri, null);
+    assert.equal(cleared.artworkUrl, null);
+    assert.equal(cleared.duration, 0);
+    assert.equal(cleared.canSeek, false);
+});

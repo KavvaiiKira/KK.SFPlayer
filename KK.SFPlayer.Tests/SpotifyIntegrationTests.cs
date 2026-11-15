@@ -197,6 +197,8 @@ namespace KK.SFPlayer.Tests
             }
 
             var trackRequestsBeforePlay = context.Handler.Requests.Count(item => item.Path.EndsWith("/items", StringComparison.Ordinal));
+            context.Playback.PublishPlaying(false);
+            context.Playback.PublishProgress(new PlaybackProgress(0, 0, false, null));
             Assert.False(viewModel.Playback.HasPlayback);
             await viewModel.Playback.TogglePlaybackCommand.ExecuteAsync(null);
 
@@ -1201,6 +1203,50 @@ namespace KK.SFPlayer.Tests
             Assert.True(playback.IsCurrentTrack(track.Uri));
             Assert.Equal("spotify:playlist:demo", playback.CurrentPlaylistUri);
             Assert.True(playback.TogglePlaybackCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task LosingPlaybackClearsTransportStateAndTrackArtwork()
+        {
+            using var context = new TestContext(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+            using var state = new PlayerUiState { IsConnected = true };
+            using var playback = new PlaybackViewModel(context.Player, state, () => Task.CompletedTask, () => true);
+            context.Playback.PublishPlaying(true);
+            context.Playback.PublishProgress(new PlaybackProgress(1000, 180000, true, "spotify:track:one", ArtworkUrl: "https://example.com/cover"));
+            Assert.True(playback.HasPlayback);
+            Assert.NotNull(playback.ArtworkUrl);
+
+            context.Playback.PublishPlaying(false);
+            context.Playback.PublishProgress(new PlaybackProgress(0, 0, false, null));
+
+            Assert.False(playback.HasPlayback);
+            Assert.False(playback.IsPlaying);
+            Assert.False(playback.HasCurrentTrack);
+            Assert.Null(playback.ArtworkUrl);
+            Assert.False(playback.NextTrackCommand.CanExecute(null));
+            Assert.True(playback.TogglePlaybackCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task LosingAuthorizationInterruptsPendingPlaybackWithoutWaitingForTimeout()
+        {
+            using var context = new TestContext(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+            context.Handler.PlaybackStarted = null;
+            using var state = new PlayerUiState { IsConnected = true };
+            using var playback = new PlaybackViewModel(context.Player, state, () => Task.CompletedTask, () => true);
+            var track = new TrackInfo("spotify:track:one", "First", "Artist", "3:00", null, 0, 180000);
+            var start = playback.PlayAsync("spotify:playlist:demo", track, 0, state.CancellationToken);
+            Assert.True(playback.IsLoading);
+
+            state.IsConnected = false;
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => start.WaitAsync(TimeSpan.FromSeconds(2)));
+            Assert.Equal(AuthenticationConstants.NotConnected, error.Message);
+            Assert.False(playback.IsLoading);
+            Assert.False(playback.HasPlayback);
+            Assert.Null(playback.CurrentTrackUri);
         }
 
         [Fact]
