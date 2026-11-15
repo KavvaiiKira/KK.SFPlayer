@@ -113,7 +113,7 @@ namespace KK.SFPlayer.Tests
                 return;
             }
 
-            using var context = new TestContext(request => request.Path is "/v1/me/player/play" or "/v1/me/player/shuffle" ?
+            using var context = new TestContext(request => request.Path is "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat" ?
                 new HttpResponseMessage(HttpStatusCode.NoContent) :
                 throw new InvalidOperationException("Unexpected Spotify request."));
             context.SeedToken(expired: false);
@@ -175,7 +175,7 @@ namespace KK.SFPlayer.Tests
                     }));
                 }
 
-                if (request.Path is "/v1/me/player/play" or "/v1/me/player/shuffle")
+                if (request.Path is "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat")
                 {
                     return new HttpResponseMessage(HttpStatusCode.NoContent);
                 }
@@ -849,7 +849,7 @@ namespace KK.SFPlayer.Tests
                 "/v1/playlists/demo/items" when request.Query.Contains("offset=0", StringComparison.Ordinal) => Json(
                     "{\"items\":[{\"item\":" + TrackJson + "},{\"item\":null},{\"item\":{\"type\":\"episode\",\"uri\":\"spotify:episode:one\"}},{\"is_local\":true,\"item\":" + TrackJson + "}],\"next\":\"https://api.spotify.com/next\"}"),
                 "/v1/playlists/demo/items" => Json("{\"items\":[{\"track\":" + TrackJson + "}],\"next\":null}"),
-                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             });
             context.SeedToken();
@@ -924,7 +924,7 @@ namespace KK.SFPlayer.Tests
             {
                 "/v1/me/playlists" => Json("""{"items":[{"id":"one","uri":"spotify:playlist:one","name":"One"},{"id":"two","uri":"spotify:playlist:two","name":"Two"}],"next":null}"""),
                 "/v1/playlists/one/items" or "/v1/playlists/two/items" => Json(items),
-                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             };
 
@@ -1083,7 +1083,7 @@ namespace KK.SFPlayer.Tests
             {
                 "/v1/me/playlists" => Json("""{"items":[{"id":"demo","uri":"spotify:playlist:demo","name":"Demo"}],"next":null}"""),
                 "/v1/playlists/demo/items" => Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}"),
-                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             });
             context.SeedToken(false);

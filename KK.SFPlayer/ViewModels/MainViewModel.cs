@@ -102,6 +102,7 @@ namespace KK.SFPlayer.ViewModels
                 WindowHeight = double.IsFinite(_settings.WindowHeight) ?
                     Math.Clamp(_settings.WindowHeight, WindowConstants.MinimumHeight, WindowConstants.MaximumHeight) : WindowConstants.MinimumHeight;
                 Playback.Volume = double.IsFinite(_settings.Volume) ? Math.Clamp(_settings.Volume, 0, 100) : StreamingConstants.DefaultVolume * 100;
+                Playback.RestoreModes(_settings.ShuffleEnabled, _settings.RepeatMode);
                 _settingsLoaded = true;
                 OnPropertyChanged(nameof(HasClientId));
                 OnPropertyChanged(nameof(NeedsLogin));
@@ -292,6 +293,8 @@ namespace KK.SFPlayer.ViewModels
             var next = _settings with
             {
                 Volume = Playback.Volume,
+                ShuffleEnabled = Playback.ShuffleEnabled,
+                RepeatMode = Playback.RepeatMode,
                 WindowWidth = WindowWidth,
                 WindowHeight = WindowHeight,
             };

@@ -11,6 +11,10 @@ namespace KK.SFPlayer.Models.Records
 
         public bool AlwaysOnTop { get; init; }
 
+        public bool ShuffleEnabled { get; init; }
+
+        public int RepeatMode { get; init; }
+
         public double Volume { get; init; } = StreamingConstants.DefaultVolume * 100;
 
         public double WindowWidth { get; init; } = WindowConstants.MinimumWidth;

@@ -6,7 +6,6 @@ using Avalonia.VisualTree;
 using KK.SFPlayer.ViewModels;
 using KK.SFPlayer.Models.Records;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 
 namespace KK.SFPlayer.Views
 {
@@ -18,7 +17,6 @@ namespace KK.SFPlayer.Views
         {
             InitializeComponent();
             TracksList.AddHandler(ScrollViewer.ScrollChangedEvent, OnTracksScrolled);
-            TracksList.AddHandler(KeyDownEvent, OnTracksKeyDown, RoutingStrategies.Tunnel);
             DataContextChanged += (_, _) => UpdateModel();
         }
 
@@ -55,16 +53,6 @@ namespace KK.SFPlayer.Views
         private void OnTrackTapped(object? sender, TappedEventArgs e)
         {
             if (sender is Control { DataContext: TrackInfo track } && _model?.PlayTrackCommand.CanExecute(track) == true)
-            {
-                _model.PlayTrackCommand.Execute(track);
-                e.Handled = true;
-            }
-        }
-
-        private void OnTracksKeyDown(object? sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Enter && TracksList.SelectedItem is TrackInfo track &&
-                _model?.PlayTrackCommand.CanExecute(track) == true)
             {
                 _model.PlayTrackCommand.Execute(track);
                 e.Handled = true;

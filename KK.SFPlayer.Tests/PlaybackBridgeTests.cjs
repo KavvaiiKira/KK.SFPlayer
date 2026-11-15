@@ -158,17 +158,20 @@ test("leaving the page disconnects playback and drops pending token callbacks", 
     assert.equal(called, false);
 });
 
-test("playback starts at ten percent and volume supports mute and clamping", () => {
+test("playback starts at ten percent and volume supports mute and clamping", async () => {
     const bridge = createBridge();
     bridge.send({ type: "connect", name: "KK.SFPlayer", volume: 0.1 });
     bridge.window.onSpotifyWebPlaybackSDKReady();
     const player = bridge.players[0];
     assert.equal(player.volume, 0.1);
     bridge.send({ type: "volume", volume: 0 });
+    await settle();
     assert.equal(player.volume, 0);
     bridge.send({ type: "volume", volume: 0.35 });
+    await settle();
     assert.equal(player.volume, 0.35);
     bridge.send({ type: "volume", volume: 2 });
+    await settle();
     assert.equal(player.volume, 1);
 });
 
@@ -345,4 +348,29 @@ test("an inactive SDK session clears stale now-playing state", () => {
     assert.equal(cleared.artworkUrl, null);
     assert.equal(cleared.duration, 0);
     assert.equal(cleared.canSeek, false);
+});
+
+test("rapid volume changes finish at the last requested level", async () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    const player = bridge.players[0];
+    const calls = [];
+    let finishFirst;
+    player.setVolume = value => {
+        calls.push(value);
+        if (calls.length === 1) return new Promise(resolve => {
+            finishFirst = () => { player.volume = value; resolve(); };
+        });
+        player.volume = value;
+        return Promise.resolve();
+    };
+    bridge.send({ type: "volume", volume: 0.1 });
+    await settle();
+    bridge.send({ type: "volume", volume: 0.25 });
+    bridge.send({ type: "volume", volume: 0.35 });
+    finishFirst();
+    await settle();
+    assert.deepEqual(calls, [0.1, 0.35]);
+    assert.equal(player.volume, 0.35);
 });

@@ -72,6 +72,7 @@ namespace KK.SFPlayer.ViewModels
         private bool _hasPlayback;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(VolumeDescription))]
         private double _volume = StreamingConstants.DefaultVolume * 100;
 
         [ObservableProperty]
@@ -122,6 +123,8 @@ namespace KK.SFPlayer.ViewModels
         public string ElapsedTime => FormatTrackTime(PositionMs);
 
         public string RemainingTime => string.Format(StreamingConstants.RemainingTimeFormat, FormatTrackTime(DurationMs - PositionMs));
+
+        public string VolumeDescription => string.Format(StreamingConstants.VolumeFormat, Volume);
 
         public string ShuffleTooltip => ShuffleEnabled ? StreamingConstants.ShuffleOn : StreamingConstants.ShuffleOff;
 
@@ -194,6 +197,10 @@ namespace KK.SFPlayer.ViewModels
             try
             {
                 await _player.PlayAsync(playlistUri, track.Position, cancellationToken, track.Uri, sort);
+                if (_pendingModes is not null)
+                {
+                    _modeConfirmationDeadline = DateTime.UtcNow.AddSeconds(StreamingConstants.ModeConfirmationTimeoutSeconds);
+                }
                 HasPlayback = true;
                 await ready.Task.WaitAsync(TimeSpan.FromSeconds(StreamingConstants.ConnectionTimeoutSeconds), cancellationToken);
                 State.Status = string.Empty;
@@ -214,6 +221,15 @@ namespace KK.SFPlayer.ViewModels
                     OnProgressChanged(this, new PlaybackProgress(0, 0, false, null));
                 }
             }
+        }
+
+        public void RestoreModes(bool shuffle, int repeat)
+        {
+            RepeatMode = Math.Clamp(repeat, 0, 2);
+            ShuffleEnabled = shuffle && RepeatMode == 0;
+            _appliedModes = new PlaybackModes(ShuffleEnabled, RepeatMode);
+            _pendingModes = _appliedModes;
+            _modeConfirmationDeadline = DateTime.MaxValue;
         }
 
         public void ReportError(string message)
@@ -438,6 +454,13 @@ namespace KK.SFPlayer.ViewModels
 
         partial void OnVolumeChanged(double value)
         {
+            var normalized = double.IsFinite(value) ?
+                Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, 100) : StreamingConstants.DefaultVolume * 100;
+            if (value != normalized)
+            {
+                Volume = normalized;
+                return;
+            }
             try
             {
                 _player.SetVolume(value / 100);

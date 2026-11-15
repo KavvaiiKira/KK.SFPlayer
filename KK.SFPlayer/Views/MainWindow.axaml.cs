@@ -23,8 +23,15 @@ namespace KK.SFPlayer.Views
         {
             InitializeComponent();
             _volumeCloseTimer.Tick += OnVolumeCloseTick;
-            VolumePopup.Closed += (_, _) => _volumeCloseTimer.Stop();
-            AddHandler(KeyDownEvent, OnVolumeKeyDown, RoutingStrategies.Tunnel);
+            VolumePopup.Closed += (_, _) =>
+            {
+                _volumeCloseTimer.Stop();
+                if (VolumeSlider.IsKeyboardFocusWithin)
+                {
+                    VolumeButton.Focus();
+                }
+            };
+            AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
             ProgressSlider.AddHandler(PointerPressedEvent, OnSeekPointerPressed, RoutingStrategies.Tunnel);
             ProgressSlider.AddHandler(PointerReleasedEvent, OnSeekPointerReleased, RoutingStrategies.Bubble, true);
             ProgressSlider.AddHandler(KeyDownEvent, OnSeekKeyDown, RoutingStrategies.Tunnel);
@@ -69,8 +76,13 @@ namespace KK.SFPlayer.Views
 
         private void OnVolumeClick(object? sender, RoutedEventArgs e) => VolumePopup.IsOpen = true;
 
-        private void OnVolumeKeyDown(object? sender, KeyEventArgs e)
+        private void OnWindowKeyDown(object? sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Enter && DataContext is MainViewModel { IsSettingsOpen: false, IsLogoutConfirmationOpen: false })
+            {
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.Escape && VolumePopup.IsOpen)
             {
                 VolumePopup.IsOpen = false;

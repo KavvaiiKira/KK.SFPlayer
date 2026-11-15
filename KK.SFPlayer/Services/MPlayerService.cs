@@ -48,6 +48,8 @@ namespace KK.SFPlayer.Services
         private string? _queuePlaylistUri;
         private bool _shuffleRequested;
         private bool? _shuffleState;
+        private int _repeatRequested;
+        private int? _repeatState;
 
         public MPlayerService(SettingsStore settings, SpotifyClientConfig? configuration = null, ILocalPlaybackEngine? playback = null)
         {
@@ -154,16 +156,11 @@ namespace KK.SFPlayer.Services
 
         public async Task SetRepeatAsync(int mode, CancellationToken cancellationToken)
         {
-            var state = mode switch
-            {
-                0 => PlayerSetRepeatRequest.State.Off,
-                1 => PlayerSetRepeatRequest.State.Context,
-                2 => PlayerSetRepeatRequest.State.Track,
-                _ => throw new ArgumentOutOfRangeException(nameof(mode)),
-            };
             var device = await GetLocalDeviceAsync(cancellationToken);
             var client = await GetClientAsync(cancellationToken);
-            await client.Player.SetRepeat(new PlayerSetRepeatRequest(state) { DeviceId = device }, cancellationToken);
+            await ApplyRepeatAsync(client, device, mode, cancellationToken);
+            _repeatRequested = mode;
+            _repeatState = mode;
         }
 
         public void TogglePause()
@@ -193,6 +190,7 @@ namespace KK.SFPlayer.Services
             }
 
             _clientId = clientId;
+            RestorePlaybackModes();
             await GetClientAsync(cancellationToken);
             PreparePlayback();
             foreach (var cached in _cache.LoadTracks(clientId))
@@ -263,6 +261,7 @@ namespace KK.SFPlayer.Services
                     _clientId = clientId;
                     _token = token;
                     _client = new SpotifyClient(_configuration.WithToken(token.AccessToken));
+                    RestorePlaybackModes();
                     PreparePlayback();
                     return;
                 }
@@ -288,6 +287,8 @@ namespace KK.SFPlayer.Services
             _queuePlaylistUri = null;
             _shuffleState = null;
             _shuffleRequested = false;
+            _repeatRequested = 0;
+            _repeatState = null;
             _background.Cancel();
             _background.Dispose();
             _background = new CancellationTokenSource();
@@ -523,11 +524,17 @@ namespace KK.SFPlayer.Services
                     await client.Player.SetShuffle(new PlayerShuffleRequest(_shuffleRequested) { DeviceId = deviceId }, cancellationToken);
                     _shuffleState = _shuffleRequested;
                 }
+                if (_repeatState != _repeatRequested)
+                {
+                    await ApplyRepeatAsync(client, deviceId, _repeatRequested, cancellationToken);
+                    _repeatState = _repeatRequested;
+                }
             }
             catch (APIException exception) when (exception.Response?.StatusCode == HttpStatusCode.NotFound)
             {
                 _queuePlaylistUri = null;
                 _shuffleState = null;
+                _repeatState = null;
                 _playback.Reset();
                 throw new InvalidOperationException(StreamingConstants.DeviceUnavailable);
             }
@@ -578,6 +585,31 @@ namespace KK.SFPlayer.Services
                 }
             }
         }
+
+        private void RestorePlaybackModes()
+        {
+            var saved = _settings.Load();
+            _repeatRequested = Math.Clamp(saved.RepeatMode, 0, 2);
+            _shuffleRequested = saved.ShuffleEnabled && _repeatRequested == 0;
+        }
+
+        private static Task ApplyRepeatAsync(
+            SpotifyClient client,
+            string device,
+            int mode,
+            CancellationToken cancellationToken) =>
+            client.Player.SetRepeat(
+                new PlayerSetRepeatRequest(mode switch
+                {
+                    0 => PlayerSetRepeatRequest.State.Off,
+                    1 => PlayerSetRepeatRequest.State.Context,
+                    2 => PlayerSetRepeatRequest.State.Track,
+                    _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+                })
+                {
+                    DeviceId = device,
+                },
+                cancellationToken);
 
         private void RegisterSnapshot(string playlistId, string? snapshot)
         {
@@ -680,6 +712,7 @@ namespace KK.SFPlayer.Services
         private void OnModesChanged(object? sender, PlaybackModes modes)
         {
             _shuffleState = modes.Shuffle;
+            _repeatState = modes.RepeatMode;
             ModesChanged?.Invoke(this, modes);
         }
 

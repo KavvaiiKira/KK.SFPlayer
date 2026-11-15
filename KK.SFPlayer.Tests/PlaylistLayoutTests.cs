@@ -169,6 +169,9 @@ namespace KK.SFPlayer.Tests
                 Assert.True(volumeButton.IsPointerOver);
                 Assert.Equal(18, Assert.IsType<Viewbox>(volumeButton.Content).Width);
                 Assert.Equal(Avalonia.Layout.Orientation.Vertical, volumeSlider.Orientation);
+                Assert.Equal(1, volumeSlider.SmallChange);
+                Assert.Equal(5, volumeSlider.LargeChange);
+                Assert.True(volumeSlider.IsSnapToTickEnabled);
                 Assert.Equal(playbackButton.Bounds.Width, volumeButton.Bounds.Width);
                 var volumeRoot = (WindowBase)TopLevel.GetTopLevel(volumeSlider)!;
                 window.MouseMove(new Point(440, 430));
@@ -186,6 +189,15 @@ namespace KK.SFPlayer.Tests
                 volumeRoot.MouseDown(volumeSlider.TranslatePoint(new Point(12, 119), volumeRoot)!.Value, MouseButton.Left);
                 volumeRoot.MouseUp(volumeSlider.TranslatePoint(new Point(12, 119), volumeRoot)!.Value, MouseButton.Left);
                 Assert.Equal(0, volumeSlider.Value);
+                volumeSlider.Focus();
+                volumeRoot.KeyPress(Key.Up, RawInputModifiers.None, PhysicalKey.ArrowUp, null);
+                volumeRoot.KeyRelease(Key.Up, RawInputModifiers.None, PhysicalKey.ArrowUp, null);
+                Assert.Equal(1, volumeSlider.Value);
+                Assert.Equal(0.01, player.Volume);
+                volumeRoot.KeyPress(Key.Down, RawInputModifiers.None, PhysicalKey.ArrowDown, null);
+                volumeRoot.KeyRelease(Key.Down, RawInputModifiers.None, PhysicalKey.ArrowDown, null);
+                Assert.Equal(0, volumeSlider.Value);
+                Assert.Equal(0, player.Volume);
                 Layout(window);
                 Assert.InRange(knob.TranslatePoint(new Point(knob.Bounds.Width / 2, knob.Bounds.Height / 2), volumeSlider)!.Value.Y, 114.9, 115.1);
                 volumeRoot.MouseMove(new Point(-20, -20));
@@ -198,7 +210,8 @@ namespace KK.SFPlayer.Tests
                 Assert.False(volumePopup.IsOpen);
                 volumeSlider.Value = 10;
                 Click(window, playbackButton.TranslatePoint(new Point(15, 15), window)!.Value);
-                Assert.False(viewModel.Playback.IsPlaying);
+                Assert.False(viewModel.Playback.IsPlaying,
+                    $"HasPlayback={viewModel.Playback.HasPlayback}; Starting={viewModel.Playback.IsStarting}; Preparing={viewModel.Playback.IsPreparing}; CanToggle={viewModel.Playback.CanTogglePlayback}");
                 viewModel.State.IsBusy = true;
                 Assert.True(playbackButton.IsEnabled);
                 Click(window, playbackButton.TranslatePoint(new Point(15, 15), window)!.Value);
@@ -214,6 +227,10 @@ namespace KK.SFPlayer.Tests
                 Click(window, previous.TranslatePoint(new Point(12, 12), window)!.Value);
                 Click(window, next.TranslatePoint(new Point(12, 12), window)!.Value);
                 Assert.Equal(1, player.PreviousCount);
+                Assert.Equal(1, player.NextCount);
+                next.Focus();
+                window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+                window.KeyRelease(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
                 Assert.Equal(1, player.NextCount);
                 var shuffle = window.FindControl<Button>("ShuffleButton")!;
                 Click(window, shuffle.TranslatePoint(new Point(12, 12), window)!.Value);
@@ -352,7 +369,7 @@ namespace KK.SFPlayer.Tests
                 Assert.IsType<TrackInfo>(detail.FindControl<ListBox>("TracksList")!.SelectedItem);
                 window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
                 window.KeyRelease(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
-                Assert.Equal(playCount + 1, player.Played.Count);
+                Assert.Equal(playCount, player.Played.Count);
                 Assert.Equal(59, player.Played.Last().Position);
                 viewModel.Playlist.SelectedSort = 4;
                 Layout(window);

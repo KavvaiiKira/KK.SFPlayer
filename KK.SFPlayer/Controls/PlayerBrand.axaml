@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:KK.SFPlayer.Controls"
+             x:Class="KK.SFPlayer.Controls.PlayerBrand"
+             x:Name="Root"
+             x:DataType="controls:PlayerBrand"
+             x:CompileBindings="True"
+             IsHitTestVisible="False">
+    <UserControl.Resources>
+        <StreamGeometry x:Key="LetterK">M0,0 H3.5 V6.5 L8.5,0 H12.5 L6,9 L12.5,18 H8.5 L3.5,11.5 V18 H0 Z</StreamGeometry>
+        <LinearGradientBrush x:Key="MarkBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+            <GradientStop Offset="0" Color="#7CC4FF" />
+            <GradientStop Offset="1" Color="#C4B5FD" />
+        </LinearGradientBrush>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <Style Selector="Grid.disc.spinning">
+            <Style.Animations>
+                <Animation Duration="0:0:6" IterationCount="Infinite" Easing="LinearEasing">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="RotateTransform.Angle" Value="0" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="RotateTransform.Angle" Value="360" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </UserControl.Styles>
+    <Viewbox Stretch="Uniform">
+        <Grid Width="64" Height="64">
+            <Grid Classes="disc" Classes.spinning="{Binding #Root.IsSpinning}" RenderTransformOrigin="50%,50%">
+                <Grid.RenderTransform>
+                    <RotateTransform />
+                </Grid.RenderTransform>
+                <Ellipse Margin="2" Fill="#151022" StrokeThickness="3.5">
+                    <Ellipse.Stroke>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                            <GradientStop Offset="0" Color="#FFC2E8" />
+                            <GradientStop Offset="1" Color="#FF829D" />
+                        </LinearGradientBrush>
+                    </Ellipse.Stroke>
+                </Ellipse>
+                <Ellipse Margin="8" Stroke="#3B2B5A" StrokeThickness="0.75" Opacity="0.25" />
+            </Grid>
+            <Canvas Width="64" Height="64">
+                <Canvas.RenderTransform>
+                    <TranslateTransform X="0.5" Y="4.5" />
+                </Canvas.RenderTransform>
+                <Path Data="M14,34 V28 A18,18 0 0 1 50,28 V34"
+                      Stroke="{StaticResource MarkBrush}" StrokeThickness="3.5" StrokeLineCap="Round" />
+                <Border Canvas.Left="10.5" Canvas.Top="28" Width="6" Height="13"
+                        CornerRadius="2" Background="{StaticResource MarkBrush}" />
+                <Border Canvas.Left="47.5" Canvas.Top="28" Width="6" Height="13"
+                        CornerRadius="2" Background="{StaticResource MarkBrush}" />
+                <Path Canvas.Left="18" Canvas.Top="25" Data="{StaticResource LetterK}" Fill="{StaticResource MarkBrush}" />
+                <Path Canvas.Left="33.5" Canvas.Top="25" Data="{StaticResource LetterK}" Fill="{StaticResource MarkBrush}" />
+            </Canvas>
+        </Grid>
+    </Viewbox>
+</UserControl>

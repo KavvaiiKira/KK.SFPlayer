@@ -6,6 +6,8 @@
     let configuration;
     let tokenRequest = 0;
     let volume = 0.1;
+    let volumeQueue = Promise.resolve();
+    let volumeRevision = 0;
     let progressTimer;
     let stateGeneration = 0;
     let transportQueue = Promise.resolve();
@@ -75,6 +77,17 @@
         });
     }
 
+    function updateVolume(value) {
+        volume = clampVolume(value);
+        const revision = ++volumeRevision;
+        if (!player) return;
+        volumeQueue = volumeQueue.then(() => {
+            if (!closed && revision === volumeRevision) return player.setVolume(volume);
+        }).catch(() => {
+            if (!closed) send({ type: "error", code: "playback_error" });
+        });
+    }
+
     function connect() {
         if (!sdkReady || !configuration || player) return;
         player = new Spotify.Player({
@@ -128,8 +141,7 @@
         } else if (data.type === "seek" && player) {
             enqueueTransport(() => player.seek(Math.max(0, Math.floor(Number(data.position) || 0))));
         } else if (data.type === "volume") {
-            volume = clampVolume(data.volume);
-            if (player) player.setVolume(volume).catch(() => send({ type: "error", code: "playback_error" }));
+            updateVolume(data.volume);
         }
     });
     window.addEventListener("pagehide", () => {

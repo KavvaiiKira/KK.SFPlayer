@@ -41,9 +41,7 @@
                                         VerticalAlignment="Center"
                                         Orientation="Horizontal"
                                         Spacing="8">
-                                <Image Width="24"
-                                       Height="24"
-                                       Source="avares://KK.SFPlayer/Assets/Brand/kk-brand.png" />
+                                <controls:PlayerBrand Width="28" Height="28" />
                                 <TextBlock VerticalAlignment="Center"
                                            Foreground="{DynamicResource AppTextMutedBrush}"
                                            FontSize="15"
@@ -200,7 +198,7 @@
                                     </Grid>
                                 </Button>
                                 <Button x:Name="VolumeButton" Classes="icon-button transport"
-                                        AutomationProperties.Name="{x:Static constants:StreamingConstants.Volume}"
+                                        AutomationProperties.Name="{Binding Playback.VolumeDescription}"
                                         PointerEntered="OnVolumePointerEntered" PointerExited="OnVolumePointerExited"
                                         Click="OnVolumeClick">
                                     <Viewbox Width="18" Height="18">
@@ -218,6 +216,7 @@
                                             PointerEntered="OnVolumePointerEntered" PointerExited="OnVolumePointerExited">
                                         <Slider x:Name="VolumeSlider" Classes="vertical-volume" Width="24" Height="120"
                                                 Orientation="Vertical" Minimum="0" Maximum="100"
+                                                SmallChange="1" LargeChange="5" TickFrequency="1" IsSnapToTickEnabled="True"
                                                 Value="{Binding Playback.Volume, Mode=TwoWay}"
                                                 AutomationProperties.Name="{x:Static constants:StreamingConstants.Volume}" />
                                     </Border>

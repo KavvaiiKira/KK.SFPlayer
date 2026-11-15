@@ -154,7 +154,7 @@ namespace KK.SFPlayer.Tests
                 })),
                 "/v1/playlists/demo" => Json(JsonSerializer.Serialize(new { snapshot_id = version })),
                 "/v1/playlists/demo/items" => CacheTracks(names),
-                "/v1/me/player/play" or "/v1/me/player/shuffle" => new HttpResponseMessage(HttpStatusCode.NoContent),
+                "/v1/me/player/play" or "/v1/me/player/shuffle" or "/v1/me/player/repeat" => new HttpResponseMessage(HttpStatusCode.NoContent),
                 _ => throw new InvalidOperationException(request.Path),
             };
             using var initial = new TestContext(Respond);

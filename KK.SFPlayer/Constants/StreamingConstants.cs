@@ -17,6 +17,7 @@ namespace KK.SFPlayer.Constants
         public const string Loading = "Loading playback…";
         public const string Resume = "Resume";
         public const string Volume = "Volume";
+        public const string VolumeFormat = "Volume: {0:0}%";
         public const string Previous = "Previous track";
         public const string Next = "Next track";
         public const string ShuffleOn = "Shuffle: on";
