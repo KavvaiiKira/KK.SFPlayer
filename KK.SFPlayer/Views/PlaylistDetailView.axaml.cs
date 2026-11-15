@@ -12,7 +12,7 @@ namespace KK.SFPlayer.Views
 {
     public partial class PlaylistDetailView : UserControl
     {
-        private MainViewModel? _model;
+        private PlaylistViewModel? _model;
 
         public PlaylistDetailView()
         {
@@ -35,6 +35,7 @@ namespace KK.SFPlayer.Views
             if (_model is not null)
             {
                 _model.PropertyChanged -= OnModelPropertyChanged;
+                _model.Playback.PropertyChanged -= OnModelPropertyChanged;
                 _model = null;
             }
 
@@ -75,12 +76,14 @@ namespace KK.SFPlayer.Views
             if (_model is not null)
             {
                 _model.PropertyChanged -= OnModelPropertyChanged;
+                _model.Playback.PropertyChanged -= OnModelPropertyChanged;
             }
 
-            _model = DataContext as MainViewModel;
+            _model = DataContext as PlaylistViewModel;
             if (_model is not null)
             {
                 _model.PropertyChanged += OnModelPropertyChanged;
+                _model.Playback.PropertyChanged += OnModelPropertyChanged;
             }
 
             UpdateCurrentTrack();
@@ -90,24 +93,24 @@ namespace KK.SFPlayer.Views
 
         private void UpdateCurrentTrack()
         {
-            var playlistMatches = _model?.SelectedPlaylist?.Uri is { } playlistUri && playlistUri == _model.CurrentPlaylistUri;
+            var playlistMatches = _model?.SelectedPlaylist?.Uri is { } playlistUri && playlistUri == _model.Playback.CurrentPlaylistUri;
             foreach (var row in TracksList.GetVisualDescendants().OfType<Border>().Where(border => border.Classes.Contains("track-row")))
             {
-                var current = playlistMatches && row.DataContext is TrackInfo track && track.Uri == _model?.CurrentTrackUri;
+                var current = playlistMatches && row.DataContext is TrackInfo track && track.Uri == _model?.Playback.CurrentTrackUri;
                 row.Classes.Set("current", current);
-                row.Classes.Set("playing", current && _model?.IsPlaying == true);
+                row.Classes.Set("playing", current && _model?.Playback.IsPlaying == true);
             }
         }
 
         private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName is nameof(MainViewModel.CurrentTrackUri) or nameof(MainViewModel.CurrentPlaylistUri) or
-                nameof(MainViewModel.SelectedPlaylist) or nameof(MainViewModel.IsPlaying))
+            if (e.PropertyName is nameof(PlaybackViewModel.CurrentTrackUri) or nameof(PlaybackViewModel.CurrentPlaylistUri) or
+                nameof(PlaylistViewModel.SelectedPlaylist) or nameof(PlaybackViewModel.IsPlaying))
             {
                 UpdateCurrentTrack();
             }
 
-            if (e.PropertyName is nameof(MainViewModel.SelectedPlaylist) or nameof(MainViewModel.SelectedSort))
+            if (e.PropertyName is nameof(PlaylistViewModel.SelectedPlaylist) or nameof(PlaylistViewModel.SelectedSort))
             {
                 var scroll = TracksList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
                 if (scroll is not null)

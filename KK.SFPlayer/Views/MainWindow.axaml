@@ -95,7 +95,7 @@
                              Classes="playlist-list"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
-                             ItemsSource="{Binding PlaylistCards}">
+                             ItemsSource="{Binding Library.PlaylistCards}">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <VirtualizingStackPanel CacheLength="0" />
@@ -107,32 +107,32 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <views:PlaylistDetailView IsVisible="{Binding HasSelectedPlaylist}" />
+                    <views:PlaylistDetailView DataContext="{Binding Playlist}" />
                     <StackPanel Grid.Row="1" Margin="0,6,0,4" Spacing="4">
-                        <ProgressBar Height="2" IsIndeterminate="True" IsVisible="{Binding IsBusy}" />
-                        <TextBlock MaxHeight="48" Text="{Binding Status}" IsVisible="{Binding HasStatus}"
+                        <ProgressBar Height="2" IsIndeterminate="True" IsVisible="{Binding State.IsBusy}" />
+                        <TextBlock MaxHeight="48" Text="{Binding State.Status}" IsVisible="{Binding State.HasStatus}"
                                    Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextWrapping="Wrap" />
-                        <controls:TrimmedTextBlock Text="{Binding NowPlaying}" IsVisible="{Binding HasNowPlaying}"
+                        <controls:TrimmedTextBlock Text="{Binding Playback.NowPlaying}" IsVisible="{Binding Playback.HasNowPlaying}"
                                                    Foreground="{DynamicResource AppTextBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
                         <Button Classes="secondary compact"
                                 Content="{x:Static constants:CommonConstants.Retry}"
-                                Command="{Binding RetryCommand}"
-                                IsVisible="{Binding HasRetry}" />
+                                Command="{Binding State.RetryCommand}"
+                                IsVisible="{Binding State.HasRetry}" />
                     </StackPanel>
                     <Grid Grid.Row="2" RowDefinitions="22,8,30" ColumnDefinitions="*,Auto" VerticalAlignment="Bottom">
-                        <Grid Grid.ColumnSpan="2" ColumnDefinitions="40,8,*,8,40" IsVisible="{Binding IsConnected}">
+                        <Grid Grid.ColumnSpan="2" ColumnDefinitions="40,8,*,8,40" IsVisible="{Binding State.IsConnected}">
                             <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource AppTextMutedBrush}"
-                                       Text="{Binding ElapsedTime}" />
+                                       Text="{Binding Playback.ElapsedTime}" />
                             <Slider x:Name="ProgressSlider" Grid.Column="2" Classes="volume-slider" Height="22" Minimum="0"
-                                    Maximum="{Binding SeekMaximum}" Value="{Binding PositionMs, Mode=TwoWay}"
-                                    IsEnabled="{Binding CanSeek}" AutomationProperties.Name="{x:Static constants:StreamingConstants.Seek}" />
+                                    Maximum="{Binding Playback.SeekMaximum}" Value="{Binding Playback.PositionMs, Mode=TwoWay}"
+                                    IsEnabled="{Binding Playback.CanSeek}" AutomationProperties.Name="{x:Static constants:StreamingConstants.Seek}" />
                             <TextBlock Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"
-                                       Foreground="{DynamicResource AppTextMutedBrush}" Text="{Binding RemainingTime}" />
+                                       Foreground="{DynamicResource AppTextMutedBrush}" Text="{Binding Playback.RemainingTime}" />
                         </Grid>
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsConnected}">
-                            <Button x:Name="ShuffleButton" Classes="icon-button transport" Classes.active="{Binding ShuffleEnabled}"
-                                    ToolTip.Tip="{Binding ShuffleTooltip}" AutomationProperties.Name="{Binding ShuffleTooltip}"
-                                    Command="{Binding ToggleShuffleCommand}">
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" IsVisible="{Binding State.IsConnected}">
+                            <Button x:Name="ShuffleButton" Classes="icon-button transport" Classes.active="{Binding Playback.ShuffleEnabled}"
+                                    ToolTip.Tip="{Binding Playback.ShuffleTooltip}" AutomationProperties.Name="{Binding Playback.ShuffleTooltip}"
+                                    Command="{Binding Playback.ToggleShuffleCommand}">
                                 <Viewbox Width="14" Height="14">
                                     <Canvas Width="24" Height="24">
                                         <Path Data="M3,6 H6 C10,6 14,18 18,18 H22 M18,14 L22,18 L18,22 M3,18 H6 C8,18 9,15 10,13 M14,9 C16,6 17,6 18,6 H22 M18,2 L22,6 L18,10"
@@ -143,19 +143,19 @@
                             <Button x:Name="PreviousTrackButton" Classes="icon-button transport"
                                     ToolTip.Tip="{x:Static constants:StreamingConstants.Previous}"
                                     AutomationProperties.Name="{x:Static constants:StreamingConstants.Previous}"
-                                    Command="{Binding PreviousTrackCommand}">
+                                    Command="{Binding Playback.PreviousTrackCommand}">
                                 <PathIcon Width="14" Height="14" Data="M3,3 H6 V21 H3 Z M21,3 V21 L7,12 Z"
                                           Foreground="{DynamicResource AppTextBrush}" />
                             </Button>
                             <Button x:Name="PlaybackButton" Classes="icon-button"
-                                    ToolTip.Tip="{Binding PlaybackTooltip}"
-                                    AutomationProperties.Name="{Binding PlaybackTooltip}"
-                                    Command="{Binding TogglePlaybackCommand}">
+                                    ToolTip.Tip="{Binding Playback.PlaybackTooltip}"
+                                    AutomationProperties.Name="{Binding Playback.PlaybackTooltip}"
+                                    Command="{Binding Playback.TogglePlaybackCommand}">
                                 <Grid Width="16" Height="16">
-                                    <PathIcon Width="16" Height="16" IsVisible="{Binding IsPlaying}"
+                                    <PathIcon Width="16" Height="16" IsVisible="{Binding Playback.IsPlaying}"
                                               Data="M3,2 L9,2 L9,22 L3,22 Z M15,2 L21,2 L21,22 L15,22 Z"
                                               Foreground="{DynamicResource AppTextBrush}" />
-                                    <PathIcon Width="16" Height="16" IsVisible="{Binding !IsPlaying}"
+                                    <PathIcon Width="16" Height="16" IsVisible="{Binding !Playback.IsPlaying}"
                                               Data="M5,2 L19,12 L5,22 Z"
                                               Foreground="{DynamicResource AppTextBrush}" />
                                 </Grid>
@@ -163,13 +163,13 @@
                             <Button x:Name="NextTrackButton" Classes="icon-button transport"
                                     ToolTip.Tip="{x:Static constants:StreamingConstants.Next}"
                                     AutomationProperties.Name="{x:Static constants:StreamingConstants.Next}"
-                                    Command="{Binding NextTrackCommand}">
+                                    Command="{Binding Playback.NextTrackCommand}">
                                 <PathIcon Width="14" Height="14" Data="M18,3 H21 V21 H18 Z M3,3 L17,12 L3,21 Z"
                                           Foreground="{DynamicResource AppTextBrush}" />
                             </Button>
-                            <Button x:Name="RepeatButton" Classes="icon-button transport" Classes.active="{Binding IsRepeatEnabled}"
-                                    ToolTip.Tip="{Binding RepeatTooltip}" AutomationProperties.Name="{Binding RepeatTooltip}"
-                                    Command="{Binding CycleRepeatCommand}">
+                            <Button x:Name="RepeatButton" Classes="icon-button transport" Classes.active="{Binding Playback.IsRepeatEnabled}"
+                                    ToolTip.Tip="{Binding Playback.RepeatTooltip}" AutomationProperties.Name="{Binding Playback.RepeatTooltip}"
+                                    Command="{Binding Playback.CycleRepeatCommand}">
                                 <Grid Width="16" Height="16">
                                     <Viewbox Width="14" Height="14">
                                         <Canvas Width="24" Height="24">
@@ -178,7 +178,7 @@
                                         </Canvas>
                                     </Viewbox>
                                     <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="8" FontWeight="Bold"
-                                               Foreground="{DynamicResource AppTextBrush}" IsVisible="{Binding IsRepeatOne}"
+                                               Foreground="{DynamicResource AppTextBrush}" IsVisible="{Binding Playback.IsRepeatOne}"
                                                Text="{x:Static constants:StreamingConstants.RepeatOneBadge}" />
                                 </Grid>
                             </Button>
@@ -201,7 +201,7 @@
                                         PointerEntered="OnVolumePointerEntered" PointerExited="OnVolumePointerExited">
                                     <Slider x:Name="VolumeSlider" Classes="vertical-volume" Width="24" Height="120"
                                             Orientation="Vertical" Minimum="0" Maximum="100"
-                                            Value="{Binding Volume, Mode=TwoWay}"
+                                            Value="{Binding Playback.Volume, Mode=TwoWay}"
                                             AutomationProperties.Name="{x:Static constants:StreamingConstants.Volume}" />
                                 </Border>
                             </Popup>
@@ -224,7 +224,7 @@
                             <Button x:Name="AccountButton"
                                     Classes="icon-button"
                                     IsVisible="{Binding HasClientId}"
-                                    Classes.active="{Binding IsConnected}"
+                                    Classes.active="{Binding State.IsConnected}"
                                     ToolTip.Tip="{Binding AccountTooltip}"
                                     AutomationProperties.Name="{Binding AccountTooltip}"
                                     Command="{Binding AccountCommand}">

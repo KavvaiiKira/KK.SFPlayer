@@ -5,8 +5,9 @@
              xmlns:models="using:KK.SFPlayer.Models.Records"
              xmlns:controls="using:KK.SFPlayer.Controls"
              x:Class="KK.SFPlayer.Views.PlaylistDetailView"
-             x:DataType="vm:MainViewModel"
-             x:CompileBindings="True">
+             x:DataType="vm:PlaylistViewModel"
+             x:CompileBindings="True"
+             IsVisible="{Binding HasSelectedPlaylist}">
     <Grid RowDefinitions="30,8,80,10,32,8,*">
         <Button Classes="icon-button" Command="{Binding BackCommand}"
                 ToolTip.Tip="{x:Static constants:PlaylistConstants.Back}"
@@ -37,14 +38,14 @@
                       FontSize="11" MinHeight="28" Padding="8,0"
                       VerticalContentAlignment="Center"
                       ItemsSource="{Binding SortOptions}" SelectedIndex="{Binding SelectedSort}"
-                      IsEnabled="{Binding !IsBusy}"
+                      IsEnabled="{Binding !State.IsBusy}"
                       ToolTip.Tip="{x:Static constants:PlaylistConstants.Sort}"
                       AutomationProperties.Name="{x:Static constants:PlaylistConstants.Sort}" />
         </Grid>
         <ListBox x:Name="TracksList" Grid.Row="6" Classes="playlist-list"
                  Padding="0,0,4,0"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                 ItemsSource="{Binding SortedTracks}">
+                 ItemsSource="{Binding Tracks}">
             <ListBox.ItemsPanel>
                 <ItemsPanelTemplate>
                     <VirtualizingStackPanel CacheLength="0" />

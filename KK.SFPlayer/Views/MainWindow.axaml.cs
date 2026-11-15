@@ -32,7 +32,7 @@ namespace KK.SFPlayer.Views
             Deactivated += (_, _) =>
             {
                 VolumePopup.IsOpen = false;
-                (DataContext as MainViewModel)?.CommitSeek();
+                (DataContext as MainViewModel)?.Playback.CommitSeek();
             };
             PlaylistsList.AddHandler(ScrollViewer.ScrollChangedEvent, OnPlaylistsScrolled);
             Opened += async (_, _) =>
@@ -100,9 +100,9 @@ namespace KK.SFPlayer.Views
         {
             if (e.OffsetDelta.Y > 0 && e.Source is ScrollViewer scroll &&
                 scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 100 &&
-                DataContext is MainViewModel viewModel && viewModel.LoadMorePlaylistsCommand.CanExecute(null))
+                DataContext is MainViewModel viewModel && viewModel.Library.LoadMorePlaylistsCommand.CanExecute(null))
             {
-                viewModel.LoadMorePlaylistsCommand.Execute(null);
+                viewModel.Library.LoadMorePlaylistsCommand.Execute(null);
             }
         }
 
@@ -110,21 +110,21 @@ namespace KK.SFPlayer.Views
         {
             if (e.GetCurrentPoint(ProgressSlider).Properties.IsLeftButtonPressed)
             {
-                (DataContext as MainViewModel)?.BeginSeek();
+                (DataContext as MainViewModel)?.Playback.BeginSeek();
             }
         }
 
-        private void OnSeekPointerReleased(object? sender, PointerReleasedEventArgs e) => (DataContext as MainViewModel)?.CommitSeek();
+        private void OnSeekPointerReleased(object? sender, PointerReleasedEventArgs e) => (DataContext as MainViewModel)?.Playback.CommitSeek();
 
         private void OnSeekKeyDown(object? sender, KeyEventArgs e)
         {
             if (e.Key is Key.Left or Key.Right or Key.Home or Key.End or Key.PageUp or Key.PageDown)
             {
-                (DataContext as MainViewModel)?.BeginSeek();
+                (DataContext as MainViewModel)?.Playback.BeginSeek();
             }
         }
 
-        private void OnSeekKeyUp(object? sender, KeyEventArgs e) => (DataContext as MainViewModel)?.CommitSeek();
+        private void OnSeekKeyUp(object? sender, KeyEventArgs e) => (DataContext as MainViewModel)?.Playback.CommitSeek();
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {

@@ -67,21 +67,21 @@ namespace KK.SFPlayer.Tests
                 var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
 
                 Assert.InRange(list.Bounds.Height, 200, 400);
-                Assert.Equal(10, viewModel.PlaylistCards.Count);
+                Assert.Equal(10, viewModel.Library.PlaylistCards.Count);
                 Assert.InRange(player.Previews.Count, 1, 3);
                 Assert.Single(player.Pages);
 
                 var initialPlaybackButton = window.FindControl<Button>("PlaybackButton")!;
                 Assert.True(initialPlaybackButton.IsEnabled);
                 Click(window, initialPlaybackButton.TranslatePoint(new Point(15, 15), window)!.Value);
-                Assert.Equal(viewModel.Playlists[0].Uri, Assert.Single(player.Played).Uri);
-                Assert.Null(viewModel.SelectedPlaylist);
+                Assert.Equal(viewModel.Library.Playlists[0].Uri, Assert.Single(player.Played).Uri);
+                Assert.Null(viewModel.Playlist.SelectedPlaylist);
                 player.Played.Clear();
 
                 scroll.Offset = new Vector(0, scroll.Extent.Height);
                 Layout(window);
 
-                Assert.Equal(20, viewModel.PlaylistCards.Count);
+                Assert.Equal(20, viewModel.Library.PlaylistCards.Count);
                 Assert.Equal(new[] { 0, 10 }, player.Pages);
                 Assert.True(player.Previews.Count < 10);
 
@@ -89,7 +89,7 @@ namespace KK.SFPlayer.Tests
                 window.KeyRelease(Key.F5, RawInputModifiers.None, PhysicalKey.F5, null);
                 Layout(window);
 
-                Assert.Equal(10, viewModel.PlaylistCards.Count);
+                Assert.Equal(10, viewModel.Library.PlaylistCards.Count);
                 Assert.Equal(new[] { 0, 10, 0 }, player.Pages);
 
                 scroll.Offset = default;
@@ -104,17 +104,17 @@ namespace KK.SFPlayer.Tests
                 Assert.Equal(1, play.Opacity);
                 Click(window, coverPoint);
                 Assert.Single(player.Played);
-                Assert.Null(viewModel.SelectedPlaylist);
+                Assert.Null(viewModel.Playlist.SelectedPlaylist);
                 var playbackButton = window.FindControl<Button>("PlaybackButton")!;
                 var volumeSlider = window.FindControl<Slider>("VolumeSlider")!;
                 player.PublishProgress(new PlaybackProgress(30000, 180000, true, "spotify:track:one"));
                 Layout(window);
-                Assert.Equal("0:30", viewModel.ElapsedTime);
-                Assert.Equal("-2:30", viewModel.RemainingTime);
+                Assert.Equal("0:30", viewModel.Playback.ElapsedTime);
+                Assert.Equal("-2:30", viewModel.Playback.RemainingTime);
                 var progressSlider = window.FindControl<Slider>("ProgressSlider")!;
                 Click(window, progressSlider.TranslatePoint(new Point(progressSlider.Bounds.Width / 2, 11), window)!.Value);
                 Assert.InRange(Assert.Single(player.Seeks), 89990, 90010);
-                Assert.False(viewModel.IsSeeking);
+                Assert.False(viewModel.Playback.IsSeeking);
                 Assert.Equal(10, volumeSlider.Value);
                 var volumeButton = window.FindControl<Button>("VolumeButton")!;
                 var volumePopup = window.FindControl<Popup>("VolumePopup")!;
@@ -162,17 +162,17 @@ namespace KK.SFPlayer.Tests
                 Assert.False(volumePopup.IsOpen);
                 volumeSlider.Value = 10;
                 Click(window, playbackButton.TranslatePoint(new Point(15, 15), window)!.Value);
-                Assert.False(viewModel.IsPlaying);
-                viewModel.IsBusy = true;
+                Assert.False(viewModel.Playback.IsPlaying);
+                viewModel.State.IsBusy = true;
                 Assert.True(playbackButton.IsEnabled);
                 Click(window, playbackButton.TranslatePoint(new Point(15, 15), window)!.Value);
-                Assert.True(viewModel.IsPlaying);
+                Assert.True(viewModel.Playback.IsPlaying);
                 volumeSlider.Value = 0;
                 Assert.Equal(0, player.Volume);
                 volumeSlider.Value = 35;
                 Assert.Equal(0.35, player.Volume);
                 volumeSlider.Value = 10;
-                viewModel.IsBusy = false;
+                viewModel.State.IsBusy = false;
                 var previous = window.FindControl<Button>("PreviousTrackButton")!;
                 var next = window.FindControl<Button>("NextTrackButton")!;
                 Click(window, previous.TranslatePoint(new Point(12, 12), window)!.Value);
@@ -181,31 +181,31 @@ namespace KK.SFPlayer.Tests
                 Assert.Equal(1, player.NextCount);
                 var shuffle = window.FindControl<Button>("ShuffleButton")!;
                 Click(window, shuffle.TranslatePoint(new Point(12, 12), window)!.Value);
-                Assert.True(viewModel.ShuffleEnabled);
+                Assert.True(viewModel.Playback.ShuffleEnabled);
                 Assert.Contains("active", shuffle.Classes);
                 var repeat = window.FindControl<Button>("RepeatButton")!;
                 Click(window, repeat.TranslatePoint(new Point(12, 12), window)!.Value);
-                Assert.Equal(1, viewModel.RepeatMode);
-                Assert.False(viewModel.ShuffleEnabled);
+                Assert.Equal(1, viewModel.Playback.RepeatMode);
+                Assert.False(viewModel.Playback.ShuffleEnabled);
                 Click(window, repeat.TranslatePoint(new Point(12, 12), window)!.Value);
-                Assert.True(viewModel.IsRepeatOne);
+                Assert.True(viewModel.Playback.IsRepeatOne);
                 Click(window, repeat.TranslatePoint(new Point(12, 12), window)!.Value);
-                Assert.Equal(0, viewModel.RepeatMode);
+                Assert.Equal(0, viewModel.Playback.RepeatMode);
                 Assert.DoesNotContain("active", repeat.Classes);
 
                 player.ModeResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var shuffleChange = viewModel.ToggleShuffleCommand.ExecuteAsync(null);
+                var shuffleChange = viewModel.Playback.ToggleShuffleCommand.ExecuteAsync(null);
                 Layout(window);
                 Assert.Contains("active", shuffle.Classes);
                 Assert.True(shuffle.IsEnabled);
                 Assert.True(repeat.IsEnabled);
                 player.PublishModes(false, 0);
-                Assert.True(viewModel.ShuffleEnabled);
-                var repeatChange = viewModel.CycleRepeatCommand.ExecuteAsync(null);
+                Assert.True(viewModel.Playback.ShuffleEnabled);
+                var repeatChange = viewModel.Playback.CycleRepeatCommand.ExecuteAsync(null);
                 Layout(window);
                 Assert.DoesNotContain("active", shuffle.Classes);
                 Assert.Contains("active", repeat.Classes);
-                Assert.Equal(1, viewModel.RepeatMode);
+                Assert.Equal(1, viewModel.Playback.RepeatMode);
                 player.ModeResponse.SetResult();
                 using (var modeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
                 {
@@ -215,12 +215,12 @@ namespace KK.SFPlayer.Tests
                 Assert.True(shuffleChange.IsCompletedSuccessfully);
                 Assert.True(repeatChange.IsCompletedSuccessfully);
                 player.PublishModes(true, 0);
-                Assert.False(viewModel.ShuffleEnabled);
-                Assert.Equal(1, viewModel.RepeatMode);
+                Assert.False(viewModel.Playback.ShuffleEnabled);
+                Assert.Equal(1, viewModel.Playback.RepeatMode);
                 player.PublishModes(false, 1);
                 player.ModeResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var failedChange = viewModel.ToggleShuffleCommand.ExecuteAsync(null);
-                Assert.True(viewModel.ShuffleEnabled);
+                var failedChange = viewModel.Playback.ToggleShuffleCommand.ExecuteAsync(null);
+                Assert.True(viewModel.Playback.ShuffleEnabled);
                 player.ModeResponse.SetException(new InvalidOperationException("Mode change failed."));
                 using (var modeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
                 {
@@ -228,27 +228,27 @@ namespace KK.SFPlayer.Tests
                 }
 
                 Assert.True(failedChange.IsCompletedSuccessfully);
-                Assert.False(viewModel.ShuffleEnabled);
-                Assert.Equal(1, viewModel.RepeatMode);
-                Assert.False(string.IsNullOrEmpty(viewModel.Status));
+                Assert.False(viewModel.Playback.ShuffleEnabled);
+                Assert.Equal(1, viewModel.Playback.RepeatMode);
+                Assert.False(string.IsNullOrEmpty(viewModel.State.Status));
                 player.ModeResponse = null;
-                viewModel.CycleRepeatCommand.Execute(null);
-                viewModel.CycleRepeatCommand.Execute(null);
+                viewModel.Playback.CycleRepeatCommand.Execute(null);
+                viewModel.Playback.CycleRepeatCommand.Execute(null);
 
                 player.TrackOffsets.Clear();
 
                 var cardPoint = card.TranslatePoint(new Point(155, 65), window)!.Value;
                 Click(window, cardPoint);
                 Layout(window);
-                Assert.NotNull(viewModel.SelectedPlaylist);
+                Assert.NotNull(viewModel.Playlist.SelectedPlaylist);
                 Assert.False(list.IsVisible);
-                Assert.Equal(50, viewModel.SortedTracks.Count);
-                Assert.Equal("60 songs", viewModel.PlaylistSummary);
+                Assert.Equal(50, viewModel.Playlist.Tracks.Count);
+                Assert.Equal("60 songs", viewModel.Playlist.PlaylistSummary);
                 Assert.Equal(new[] { 0 }, player.TrackOffsets);
                 var detail = window.GetVisualDescendants().OfType<PlaylistDetailView>().Single();
                 var tracksScroll = detail.FindControl<ListBox>("TracksList")!
                     .GetVisualDescendants().OfType<ScrollViewer>().First();
-                var playlistUri = viewModel.SelectedPlaylist!.Uri;
+                var playlistUri = viewModel.Playlist.SelectedPlaylist!.Uri;
                 player.PublishProgress(new PlaybackProgress(1000, 180000, true, "spotify:track:1", playlistUri));
                 Layout(window);
                 var currentRow = detail.GetVisualDescendants().OfType<Border>()
@@ -265,36 +265,36 @@ namespace KK.SFPlayer.Tests
                 Assert.DoesNotContain("playing", currentRow.Classes);
                 Assert.Equal(1, currentRow.GetVisualDescendants().OfType<PathIcon>().Single(icon => icon.Classes.Contains("paused-indicator")).Opacity);
                 player.TogglePause();
-                viewModel.NextTrackCommand.Execute(null);
+                viewModel.Playback.NextTrackCommand.Execute(null);
                 player.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:2", playlistUri));
                 Assert.DoesNotContain("current", currentRow.Classes);
                 Assert.Single(detail.GetVisualDescendants().OfType<Border>(), border => border.Classes.Contains("current"));
-                viewModel.PreviousTrackCommand.Execute(null);
+                viewModel.Playback.PreviousTrackCommand.Execute(null);
                 player.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:1", playlistUri));
                 Assert.Contains("current", currentRow.Classes);
                 player.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:1", "spotify:playlist:another"));
                 Assert.DoesNotContain("current", currentRow.Classes);
-                viewModel.SelectedSort = 4;
+                viewModel.Playlist.SelectedSort = 4;
                 Layout(window);
-                Assert.Equal(59, viewModel.SortedTracks[0].Position);
-                Assert.Equal(50, viewModel.SortedTracks.Count);
-                Assert.True(viewModel.HasMoreTracks);
-                viewModel.SelectedSort = 5;
+                Assert.Equal(59, viewModel.Playlist.Tracks[0].Position);
+                Assert.Equal(50, viewModel.Playlist.Tracks.Count);
+                Assert.True(viewModel.Playlist.HasMoreTracks);
+                viewModel.Playlist.SelectedSort = 5;
                 Layout(window);
-                Assert.Equal(0, viewModel.SortedTracks[0].Position);
-                Assert.Equal(50, viewModel.SortedTracks.Count);
-                viewModel.SelectedSort = 0;
+                Assert.Equal(0, viewModel.Playlist.Tracks[0].Position);
+                Assert.Equal(50, viewModel.Playlist.Tracks.Count);
+                viewModel.Playlist.SelectedSort = 0;
                 Layout(window);
                 Assert.True(tracksScroll.Extent.Height > tracksScroll.Viewport.Height);
                 tracksScroll.Offset = new Vector(0, 600);
                 Layout(window);
                 Assert.True(tracksScroll.Offset.Y > 0);
-                Assert.Equal(50, viewModel.SortedTracks.Count);
+                Assert.Equal(50, viewModel.Playlist.Tracks.Count);
                 player.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:59", playlistUri));
                 tracksScroll.Offset = new Vector(0, tracksScroll.Extent.Height);
                 Layout(window);
-                Assert.Equal(60, viewModel.SortedTracks.Count);
-                Assert.Equal("60 songs · 3:00:00", viewModel.PlaylistSummary);
+                Assert.Equal(60, viewModel.Playlist.Tracks.Count);
+                Assert.Equal("60 songs · 3:00:00", viewModel.Playlist.PlaylistSummary);
                 Assert.Equal(new[] { 0, 0, 50 }, player.TrackOffsets);
                 Assert.True(tracksScroll.Offset.Y > 0);
                 tracksScroll.Offset = new Vector(0, tracksScroll.Extent.Height);
@@ -302,10 +302,10 @@ namespace KK.SFPlayer.Tests
                 var lazyCurrent = detail.GetVisualDescendants().OfType<Border>().Single(border => border.Classes.Contains("current"));
                 Assert.Equal(59, Assert.IsType<TrackInfo>(lazyCurrent.DataContext).Position);
 
-                viewModel.SelectedSort = 1;
+                viewModel.Playlist.SelectedSort = 1;
                 Layout(window);
-                Assert.Equal("Track 01", viewModel.SortedTracks[0].Name);
-                Assert.Equal(59, viewModel.SortedTracks[0].Position);
+                Assert.Equal("Track 01", viewModel.Playlist.Tracks[0].Name);
+                Assert.Equal(59, viewModel.Playlist.Tracks[0].Position);
                 Assert.Equal(0, tracksScroll.Offset.Y);
                 var firstTrackRow = detail.GetVisualDescendants().OfType<Border>()
                     .First(border => border.Classes.Contains("track-row") && border.DataContext is TrackInfo { Position: 59 });
@@ -317,15 +317,15 @@ namespace KK.SFPlayer.Tests
                 window.KeyRelease(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
                 Assert.Equal(playCount + 1, player.Played.Count);
                 Assert.Equal(59, player.Played.Last().Position);
-                viewModel.SelectedSort = 4;
+                viewModel.Playlist.SelectedSort = 4;
                 Layout(window);
-                Assert.Equal(59, viewModel.SortedTracks[0].Position);
-                viewModel.SelectedSort = 5;
+                Assert.Equal(59, viewModel.Playlist.Tracks[0].Position);
+                viewModel.Playlist.SelectedSort = 5;
                 Layout(window);
-                Assert.Equal(0, viewModel.SortedTracks[0].Position);
-                viewModel.SelectedSort = 0;
+                Assert.Equal(0, viewModel.Playlist.Tracks[0].Position);
+                viewModel.Playlist.SelectedSort = 0;
                 Layout(window);
-                Assert.Equal(0, viewModel.SortedTracks[0].Position);
+                Assert.Equal(0, viewModel.Playlist.Tracks[0].Position);
 
                 var labels = detail.GetVisualDescendants().OfType<TrimmedTextBlock>().ToArray();
                 Assert.True(labels[0].TextLayout.TextLines.Any(line => line.HasCollapsed), $"Width={labels[0].Bounds.Width}; text width={labels[0].TextLayout.Width}");
@@ -338,7 +338,7 @@ namespace KK.SFPlayer.Tests
                 window.KeyPress(Key.F5, RawInputModifiers.None, PhysicalKey.F5, null);
                 window.KeyRelease(Key.F5, RawInputModifiers.None, PhysicalKey.F5, null);
                 Layout(window);
-                Assert.Equal(new[] { viewModel.SelectedPlaylist!.Id }, player.VersionChecks);
+                Assert.Equal(new[] { viewModel.Playlist.SelectedPlaylist!.Id }, player.VersionChecks);
                 Assert.Equal(metadataRequests, player.Pages.Count);
                 viewModel.OpenSettingsCommand.Execute(null);
                 window.KeyPress(Key.F5, RawInputModifiers.None, PhysicalKey.F5, null);
@@ -356,10 +356,10 @@ namespace KK.SFPlayer.Tests
                 viewModel.CancelLogoutCommand.Execute(null);
 
                 var back = detail.GetVisualDescendants().OfType<Button>()
-                    .Single(button => ReferenceEquals(button.Command, viewModel.BackCommand));
+                    .Single(button => ReferenceEquals(button.Command, viewModel.Playlist.BackCommand));
                 Click(window, back.TranslatePoint(new Point(15, 15), window)!.Value);
                 Layout(window);
-                Assert.Null(viewModel.SelectedPlaylist);
+                Assert.Null(viewModel.Playlist.SelectedPlaylist);
                 Assert.True(list.IsVisible);
                 Assert.Equal(new[] { 0, 10, 0 }, player.Pages);
                 Assert.True(window.CanResize);

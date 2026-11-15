@@ -125,17 +125,17 @@ namespace KK.SFPlayer.Tests
             using (var model = new MainViewModel(initial.Player, initial.Store, initial.Startup))
             {
                 await model.InitializeAsync();
-                await model.OpenPlaylistCommand.ExecuteAsync(model.Playlists[0]);
+                await model.Library.OpenPlaylistCommand.ExecuteAsync(model.Library.Playlists[0]);
                 await initial.Player.WaitForBackgroundWorkAsync();
-                Assert.Equal(3, model.Tracks.Count);
+                Assert.Equal(3, model.Playlist.Tracks.Count);
             }
 
             using var restarted = new TestContext(Respond, initial.Directory);
             using var viewModel = new MainViewModel(restarted.Player, restarted.Store, restarted.Startup);
             await viewModel.InitializeAsync();
             await restarted.Player.WaitForBackgroundWorkAsync();
-            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
-            Assert.Equal(names, viewModel.Tracks.Select(track => track.Name));
+            await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[0]);
+            Assert.Equal(names, viewModel.Playlist.Tracks.Select(track => track.Name));
             Assert.DoesNotContain(restarted.Handler.Requests, request => request.Path.EndsWith("/items", StringComparison.Ordinal));
             await viewModel.RefreshCommand.ExecuteAsync(null);
             Assert.Equal("/v1/playlists/demo", restarted.Handler.Requests.Last().Path);
@@ -145,8 +145,8 @@ namespace KK.SFPlayer.Tests
             names = ["three", "new", "one"];
             await viewModel.RefreshCommand.ExecuteAsync(null);
             await restarted.Player.WaitForBackgroundWorkAsync();
-            await viewModel.SortLoadingTask;
-            Assert.Equal(names, viewModel.Tracks.Select(track => track.Name));
+            await viewModel.Playlist.SortLoadingTask;
+            Assert.Equal(names, viewModel.Playlist.Tracks.Select(track => track.Name));
             Assert.Single(restarted.Handler.Requests, request => request.Path.EndsWith("/items", StringComparison.Ordinal));
             await restarted.Player.PlayAsync("spotify:playlist:demo", 0, CancellationToken.None, "spotify:track:one");
             using (var play = JsonDocument.Parse(restarted.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
@@ -157,7 +157,7 @@ namespace KK.SFPlayer.Tests
             var removed = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 restarted.Player.PlayAsync("spotify:playlist:demo", 1, CancellationToken.None, "spotify:track:two"));
             Assert.Equal(PlaylistConstants.TrackRemoved, removed.Message);
-            viewModel.BackCommand.Execute(null);
+            viewModel.Playlist.BackCommand.Execute(null);
             await viewModel.RefreshCommand.ExecuteAsync(null);
             await restarted.Player.WaitForBackgroundWorkAsync();
             Assert.Single(restarted.Handler.Requests, request => request.Path.EndsWith("/items", StringComparison.Ordinal));
@@ -193,8 +193,8 @@ namespace KK.SFPlayer.Tests
             using var model = new MainViewModel(restarted.Player, restarted.Store, restarted.Startup);
             await model.InitializeAsync();
             await restarted.Player.WaitForBackgroundWorkAsync();
-            await model.OpenPlaylistCommand.ExecuteAsync(model.Playlists[0]);
-            Assert.Equal(new[] { "added", "old" }, model.Tracks.Select(track => track.Name));
+            await model.Library.OpenPlaylistCommand.ExecuteAsync(model.Library.Playlists[0]);
+            Assert.Equal(new[] { "added", "old" }, model.Playlist.Tracks.Select(track => track.Name));
             Assert.Single(restarted.Handler.Requests, request => request.Path.EndsWith("/items", StringComparison.Ordinal));
         }
 

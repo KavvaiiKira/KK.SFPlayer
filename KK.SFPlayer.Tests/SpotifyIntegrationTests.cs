@@ -36,9 +36,9 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            Assert.True(viewModel.IsConnected);
+            Assert.True(viewModel.State.IsConnected);
             Assert.NotNull(context.Store.LoadToken(ClientId));
-            Assert.Equal(NetworkConstants.SpotifyError, viewModel.Status);
+            Assert.Equal(NetworkConstants.SpotifyError, viewModel.State.Status);
         }
 
         [Fact]
@@ -53,9 +53,9 @@ namespace KK.SFPlayer.Tests
             context.SeedToken();
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            Assert.False(viewModel.IsConnected);
+            Assert.False(viewModel.State.IsConnected);
             Assert.Null(context.Store.LoadToken(ClientId));
-            Assert.Equal(AuthenticationConstants.Reconnect, viewModel.Status);
+            Assert.Equal(AuthenticationConstants.Reconnect, viewModel.State.Status);
         }
 
         [Fact]
@@ -188,11 +188,11 @@ namespace KK.SFPlayer.Tests
             await viewModel.InitializeAsync();
             if (openPlaylist)
             {
-                await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[1]);
+                await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[1]);
             }
 
-            Assert.False(viewModel.HasPlayback);
-            await viewModel.TogglePlaybackCommand.ExecuteAsync(null);
+            Assert.False(viewModel.Playback.HasPlayback);
+            await viewModel.Playback.TogglePlaybackCommand.ExecuteAsync(null);
 
             var request = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
             using var body = JsonDocument.Parse(request.Body);
@@ -207,8 +207,8 @@ namespace KK.SFPlayer.Tests
                 Assert.Equal(new[] { $"spotify:track:{expectedPosition}", $"spotify:track:{1 - expectedPosition}" }, uris);
                 Assert.Equal(0, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             }
-            Assert.True(viewModel.HasPlayback);
-            await viewModel.NextTrackCommand.ExecuteAsync(null);
+            Assert.True(viewModel.Playback.HasPlayback);
+            await viewModel.Playback.NextTrackCommand.ExecuteAsync(null);
             using var nextBody = JsonDocument.Parse(context.Handler.Requests.Last(item => item.Path == "/v1/me/player/play").Body);
             if (sort == 0)
             {
@@ -224,7 +224,7 @@ namespace KK.SFPlayer.Tests
 
             Assert.Equal(0, context.Playback.NextCount);
             var requestsBeforeEnd = context.Handler.Requests.Count;
-            await viewModel.NextTrackCommand.ExecuteAsync(null);
+            await viewModel.Playback.NextTrackCommand.ExecuteAsync(null);
             Assert.Equal(requestsBeforeEnd, context.Handler.Requests.Count);
         }
 
@@ -362,25 +362,25 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
+            await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[0]);
 
             Assert.Equal(2, context.Handler.Requests.Count);
-            Assert.Equal(50, viewModel.Tracks.Count);
-            Assert.Equal("51 songs", viewModel.PlaylistSummary);
-            await viewModel.LoadMoreTracksCommand.ExecuteAsync(null);
+            Assert.Equal(50, viewModel.Playlist.Tracks.Count);
+            Assert.Equal("51 songs", viewModel.Playlist.PlaylistSummary);
+            await viewModel.Playlist.LoadMoreTracksCommand.ExecuteAsync(null);
 
-            Assert.Equal(50, viewModel.Tracks.Count);
-            Assert.True(viewModel.HasRetry);
-            Assert.False(viewModel.LoadMoreTracksCommand.CanExecute(null));
-            await viewModel.RetryCommand.ExecuteAsync(null);
+            Assert.Equal(50, viewModel.Playlist.Tracks.Count);
+            Assert.True(viewModel.State.HasRetry);
+            Assert.False(viewModel.Playlist.LoadMoreTracksCommand.CanExecute(null));
+            await viewModel.State.RetryCommand.ExecuteAsync(null);
 
-            Assert.Equal(51, viewModel.Tracks.Count);
-            Assert.Equal(51, viewModel.SortedTracks.Count);
-            Assert.Equal(0, viewModel.SortedTracks[0].Position);
+            Assert.Equal(51, viewModel.Playlist.Tracks.Count);
+            Assert.Equal(51, viewModel.Playlist.Tracks.Count);
+            Assert.Equal(0, viewModel.Playlist.Tracks[0].Position);
             Assert.Equal(2, nextAttempts);
             Assert.All(context.Handler.Requests.TakeLast(2), request => Assert.Contains("offset=50", request.Query));
-            Assert.False(viewModel.HasMoreTracks);
-            Assert.Equal("51 songs · 2:37:15", viewModel.PlaylistSummary);
+            Assert.False(viewModel.Playlist.HasMoreTracks);
+            Assert.Equal("51 songs · 2:37:15", viewModel.Playlist.PlaylistSummary);
         }
 
         [Fact]
@@ -407,21 +407,21 @@ namespace KK.SFPlayer.Tests
 
             await viewModel.InitializeAsync();
 
-            Assert.Equal(10, viewModel.PlaylistCards.Count);
-            Assert.True(viewModel.HasMorePlaylists);
+            Assert.Equal(10, viewModel.Library.PlaylistCards.Count);
+            Assert.True(viewModel.Library.HasMorePlaylists);
             Assert.Single(context.Handler.Requests);
             Assert.Contains("limit=10", context.Handler.Requests[0].Query);
-            Assert.All(viewModel.PlaylistCards, card => Assert.Empty(card.Tracks));
+            Assert.All(viewModel.Library.PlaylistCards, card => Assert.Empty(card.Tracks));
 
-            await viewModel.PlaylistCards[0].EnsureLoadedAsync();
-            await viewModel.PlaylistCards[0].EnsureLoadedAsync();
-            Assert.Single(viewModel.PlaylistCards[0].Tracks);
+            await viewModel.Library.PlaylistCards[0].EnsureLoadedAsync();
+            await viewModel.Library.PlaylistCards[0].EnsureLoadedAsync();
+            Assert.Single(viewModel.Library.PlaylistCards[0].Tracks);
             Assert.Single(context.Handler.Requests.FindAll(request => request.Path.EndsWith("/items", StringComparison.Ordinal)));
 
-            await viewModel.LoadMorePlaylistsCommand.ExecuteAsync(null);
+            await viewModel.Library.LoadMorePlaylistsCommand.ExecuteAsync(null);
 
-            Assert.Equal(20, viewModel.PlaylistCards.Count);
-            Assert.False(viewModel.HasMorePlaylists);
+            Assert.Equal(20, viewModel.Library.PlaylistCards.Count);
+            Assert.False(viewModel.Library.HasMorePlaylists);
             var metadata = context.Handler.Requests.FindAll(request => request.Path == "/v1/me/playlists");
             Assert.Equal(2, metadata.Count);
             Assert.Contains("offset=10", metadata[1].Query);
@@ -474,7 +474,7 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            var card = Assert.Single(viewModel.PlaylistCards);
+            var card = Assert.Single(viewModel.Library.PlaylistCards);
 
             card.SetVisible(true);
             await card.LoadingTask;
@@ -499,13 +499,13 @@ namespace KK.SFPlayer.Tests
 
             await viewModel.InitializeAsync();
 
-            Assert.False(viewModel.IsConnected);
+            Assert.False(viewModel.State.IsConnected);
             Assert.False(viewModel.ShowPlaylists);
             Assert.False(viewModel.HasClientId);
             Assert.False(viewModel.NeedsLogin);
-            Assert.Empty(viewModel.Playlists);
-            Assert.Empty(viewModel.Tracks);
-            Assert.Empty(viewModel.Status);
+            Assert.Empty(viewModel.Library.Playlists);
+            Assert.Empty(viewModel.Playlist.Tracks);
+            Assert.Empty(viewModel.State.Status);
             Assert.Empty(context.Handler.Requests);
         }
 
@@ -524,7 +524,7 @@ namespace KK.SFPlayer.Tests
             Assert.True(viewModel.HasClientId);
             Assert.True(viewModel.NeedsLogin);
             Assert.False(viewModel.IsSettingsOpen);
-            Assert.False(viewModel.IsConnected);
+            Assert.False(viewModel.State.IsConnected);
             Assert.Equal(AuthenticationConstants.SignIn, viewModel.AccountTooltip);
             Assert.Empty(context.Handler.Requests);
         }
@@ -638,7 +638,7 @@ namespace KK.SFPlayer.Tests
 
             await viewModel.AccountCommand.ExecuteAsync(null);
 
-            Assert.Equal(SettingsConstants.ClientIdRequired, viewModel.Status);
+            Assert.Equal(SettingsConstants.ClientIdRequired, viewModel.State.Status);
             Assert.Empty(context.Handler.Requests);
         }
 
@@ -660,7 +660,7 @@ namespace KK.SFPlayer.Tests
             using (var firstSession = new MainViewModel(context.Player, context.Store, context.Startup))
             {
                 await firstSession.InitializeAsync();
-                Assert.True(firstSession.IsConnected);
+                Assert.True(firstSession.State.IsConnected);
                 Assert.False(firstSession.NeedsLogin);
             }
 
@@ -668,19 +668,19 @@ namespace KK.SFPlayer.Tests
                 .WithHTTPClient(new NetHttpClient(new HttpClient(context.Handler))));
             using var nextSession = new MainViewModel(nextPlayer, context.Store, context.Startup);
             await nextSession.InitializeAsync();
-            Assert.True(nextSession.IsConnected);
+            Assert.True(nextSession.State.IsConnected);
             Assert.Equal(AuthenticationConstants.SignOut, nextSession.AccountTooltip);
             Assert.Single(context.Handler.Requests.FindAll(request => request.Path == "/api/token"));
 
             await nextSession.AccountCommand.ExecuteAsync(null);
             Assert.True(nextSession.IsLogoutConfirmationOpen);
-            Assert.True(nextSession.IsConnected);
+            Assert.True(nextSession.State.IsConnected);
             Assert.NotNull(context.Store.LoadToken(ClientId));
             Assert.False(nextSession.AccountCommand.CanExecute(null));
 
             nextSession.CancelLogoutCommand.Execute(null);
             Assert.False(nextSession.IsLogoutConfirmationOpen);
-            Assert.True(nextSession.IsConnected);
+            Assert.True(nextSession.State.IsConnected);
             Assert.NotNull(context.Store.LoadToken(ClientId));
             Assert.False(nextSession.ConfirmLogoutCommand.CanExecute(null));
 
@@ -688,11 +688,11 @@ namespace KK.SFPlayer.Tests
             await nextSession.ConfirmLogoutCommand.ExecuteAsync(null);
 
             Assert.False(nextSession.IsLogoutConfirmationOpen);
-            Assert.False(nextSession.IsConnected);
+            Assert.False(nextSession.State.IsConnected);
             Assert.True(nextSession.NeedsLogin);
             Assert.Equal(AuthenticationConstants.SignIn, nextSession.AccountTooltip);
             Assert.Null(context.Store.LoadToken(ClientId));
-            Assert.Empty(nextSession.Playlists);
+            Assert.Empty(nextSession.Library.Playlists);
             Assert.True(context.Store.Load().AlwaysOnTop);
             Assert.Equal(ClientId, context.Store.Load().ClientId);
         }
@@ -732,15 +732,15 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            Assert.True(viewModel.HasRetry);
-            Assert.True(viewModel.IsConnected);
+            Assert.True(viewModel.State.HasRetry);
+            Assert.True(viewModel.State.IsConnected);
 
             available = true;
-            await viewModel.RetryCommand.ExecuteAsync(null);
+            await viewModel.State.RetryCommand.ExecuteAsync(null);
 
-            Assert.False(viewModel.HasRetry);
-            Assert.Equal(PlaybackConstants.NoPlaylists, viewModel.Status);
-            Assert.True(viewModel.IsConnected);
+            Assert.False(viewModel.State.HasRetry);
+            Assert.Equal(PlaybackConstants.NoPlaylists, viewModel.State.Status);
+            Assert.True(viewModel.State.IsConnected);
             Assert.DoesNotContain(context.Handler.Requests, request => request.Path == "/api/token");
         }
 
@@ -769,8 +769,8 @@ namespace KK.SFPlayer.Tests
 
             await viewModel.AccountCommand.ExecuteAsync(null);
 
-            Assert.Equal(SettingsConstants.ClientIdRequired, viewModel.Status);
-            Assert.False(viewModel.IsConnected);
+            Assert.Equal(SettingsConstants.ClientIdRequired, viewModel.State.Status);
+            Assert.False(viewModel.State.IsConnected);
             Assert.Empty(context.Handler.Requests);
         }
 
@@ -875,11 +875,11 @@ namespace KK.SFPlayer.Tests
 
             await viewModel.InitializeAsync();
 
-            Assert.Equal(AuthenticationConstants.Reconnect, viewModel.Status);
-            Assert.False(viewModel.IsConnected);
+            Assert.Equal(AuthenticationConstants.Reconnect, viewModel.State.Status);
+            Assert.False(viewModel.State.IsConnected);
             Assert.False(context.Player.IsConnected);
-            Assert.Empty(viewModel.Playlists);
-            Assert.False(viewModel.IsBusy);
+            Assert.Empty(viewModel.Library.Playlists);
+            Assert.False(viewModel.State.IsBusy);
         }
 
         [Fact]
@@ -919,12 +919,12 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
-            viewModel.SelectedSort = 1;
-            await viewModel.SortLoadingTask;
+            await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[0]);
+            viewModel.Playlist.SelectedSort = 1;
+            await viewModel.Playlist.SortLoadingTask;
             Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
-            Assert.Equal("Alpha", viewModel.PlaylistCards[0].Tracks[0].Name);
-            await viewModel.PlayPlaylistCommand.ExecuteAsync(null);
+            Assert.Equal("Alpha", viewModel.Library.PlaylistCards[0].Tracks[0].Name);
+            await viewModel.Playlist.PlayPlaylistCommand.ExecuteAsync(null);
             using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(0, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
@@ -933,57 +933,57 @@ namespace KK.SFPlayer.Tests
                     body.RootElement.GetProperty("uris").EnumerateArray().Select(item => item.GetString()));
             }
 
-            await viewModel.PlayTrackCommand.ExecuteAsync(viewModel.SortedTracks[1]);
+            await viewModel.Playlist.PlayTrackCommand.ExecuteAsync(viewModel.Playlist.Tracks[1]);
             using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             }
 
             context.Playback.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:2"));
-            Assert.Equal("spotify:playlist:one", viewModel.CurrentPlaylistUri);
-            await viewModel.NextTrackCommand.ExecuteAsync(null);
+            Assert.Equal("spotify:playlist:one", viewModel.Playback.CurrentPlaylistUri);
+            await viewModel.Playback.NextTrackCommand.ExecuteAsync(null);
             using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(2, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             }
 
             Assert.Equal(0, context.Playback.NextCount);
-            await viewModel.PreviousTrackCommand.ExecuteAsync(null);
+            await viewModel.Playback.PreviousTrackCommand.ExecuteAsync(null);
             using (var body = JsonDocument.Parse(context.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(1, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
             }
 
-            viewModel.BackCommand.Execute(null);
-            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[1]);
-            Assert.Equal(0, viewModel.SelectedSort);
-            viewModel.SelectedSort = 4;
-            await viewModel.SortLoadingTask;
+            viewModel.Playlist.BackCommand.Execute(null);
+            await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[1]);
+            Assert.Equal(0, viewModel.Playlist.SelectedSort);
+            viewModel.Playlist.SelectedSort = 4;
+            await viewModel.Playlist.SortLoadingTask;
             Assert.Equal(4, context.Store.Load().PlaylistSorts["two"]);
             Assert.Equal(1, context.Store.Load().PlaylistSorts["one"]);
-            viewModel.BackCommand.Execute(null);
+            viewModel.Playlist.BackCommand.Execute(null);
 
             using var restartedContext = new TestContext(Respond);
             restartedContext.SeedToken(false);
             using var restarted = new MainViewModel(restartedContext.Player, context.Store, restartedContext.Startup);
             await restarted.InitializeAsync();
-            await restarted.PlaylistCards[0].EnsureLoadedAsync();
-            Assert.Equal("Alpha", restarted.PlaylistCards[0].Tracks[0].Name);
+            await restarted.Library.PlaylistCards[0].EnsureLoadedAsync();
+            Assert.Equal("Alpha", restarted.Library.PlaylistCards[0].Tracks[0].Name);
             Assert.Contains("limit=50", restartedContext.Handler.Requests.Last().Query);
-            await restarted.PlayCardCommand.ExecuteAsync(restarted.Playlists[0]);
+            await restarted.Library.PlayCardCommand.ExecuteAsync(restarted.Library.Playlists[0]);
             using (var body = JsonDocument.Parse(restartedContext.Handler.Requests.Last(request => request.Path == "/v1/me/player/play").Body))
             {
                 Assert.Equal(0, body.RootElement.GetProperty("offset").GetProperty("position").GetInt32());
                 Assert.Equal("spotify:track:1", body.RootElement.GetProperty("uris")[0].GetString());
             }
 
-            await restarted.OpenPlaylistCommand.ExecuteAsync(restarted.Playlists[0]);
-            Assert.Equal(1, restarted.SelectedSort);
-            Assert.Equal("Alpha", restarted.SortedTracks[0].Name);
-            restarted.BackCommand.Execute(null);
-            await restarted.OpenPlaylistCommand.ExecuteAsync(restarted.Playlists[1]);
-            Assert.Equal(4, restarted.SelectedSort);
-            Assert.Equal("Beta", restarted.SortedTracks[0].Name);
+            await restarted.Library.OpenPlaylistCommand.ExecuteAsync(restarted.Library.Playlists[0]);
+            Assert.Equal(1, restarted.Playlist.SelectedSort);
+            Assert.Equal("Alpha", restarted.Playlist.Tracks[0].Name);
+            restarted.Playlist.BackCommand.Execute(null);
+            await restarted.Library.OpenPlaylistCommand.ExecuteAsync(restarted.Library.Playlists[1]);
+            Assert.Equal(4, restarted.Playlist.SelectedSort);
+            Assert.Equal("Beta", restarted.Playlist.Tracks[0].Name);
         }
 
         [Fact]
@@ -992,27 +992,27 @@ namespace KK.SFPlayer.Tests
             using var context = new TestContext(_ => throw new InvalidOperationException("Unexpected network request."));
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             context.Playback.PublishProgress(new PlaybackProgress(30000, 180000, true, "spotify:track:one", "spotify:playlist:demo", "First song", "Artist"));
-            Assert.Equal("First song — Artist", viewModel.NowPlaying);
-            Assert.True(viewModel.HasNowPlaying);
-            Assert.Equal("0:30", viewModel.ElapsedTime);
-            Assert.Equal("-2:30", viewModel.RemainingTime);
-            viewModel.BeginSeek();
-            viewModel.PositionMs = 90000;
+            Assert.Equal("First song — Artist", viewModel.Playback.NowPlaying);
+            Assert.True(viewModel.Playback.HasNowPlaying);
+            Assert.Equal("0:30", viewModel.Playback.ElapsedTime);
+            Assert.Equal("-2:30", viewModel.Playback.RemainingTime);
+            viewModel.Playback.BeginSeek();
+            viewModel.Playback.PositionMs = 90000;
             context.Playback.PublishProgress(new PlaybackProgress(31000, 180000, true, "spotify:track:one"));
-            Assert.Equal(90000, viewModel.PositionMs);
-            viewModel.CommitSeek();
+            Assert.Equal(90000, viewModel.Playback.PositionMs);
+            viewModel.Playback.CommitSeek();
             Assert.Equal(90000, Assert.Single(context.Playback.Seeks));
             context.Playback.PublishProgress(new PlaybackProgress(91000, 180000, true, "spotify:track:one"));
-            Assert.Equal("1:31", viewModel.ElapsedTime);
-            viewModel.BeginSeek();
-            viewModel.PositionMs = 120000;
+            Assert.Equal("1:31", viewModel.Playback.ElapsedTime);
+            viewModel.Playback.BeginSeek();
+            viewModel.Playback.PositionMs = 120000;
             context.Playback.PublishProgress(new PlaybackProgress(0, 240000, true, "spotify:track:two"));
-            viewModel.CommitSeek();
+            viewModel.Playback.CommitSeek();
             Assert.Single(context.Playback.Seeks);
-            Assert.Equal(0, viewModel.PositionMs);
-            Assert.Equal("-4:00", viewModel.RemainingTime);
+            Assert.Equal(0, viewModel.Playback.PositionMs);
+            Assert.Equal("-4:00", viewModel.Playback.RemainingTime);
             context.Playback.PublishProgress(new PlaybackProgress(1000, 240000, false, "spotify:track:two"));
-            Assert.False(viewModel.CanSeek);
+            Assert.False(viewModel.Playback.CanSeek);
         }
 
         [Fact]
@@ -1033,35 +1033,35 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            Assert.False(viewModel.NextTrackCommand.CanExecute(null));
-            await viewModel.PlayCardCommand.ExecuteAsync(viewModel.Playlists[0]);
-            await viewModel.ToggleShuffleCommand.ExecuteAsync(null);
-            Assert.True(viewModel.ShuffleEnabled);
+            Assert.False(viewModel.Playback.NextTrackCommand.CanExecute(null));
+            await viewModel.Library.PlayCardCommand.ExecuteAsync(viewModel.Library.Playlists[0]);
+            await viewModel.Playback.ToggleShuffleCommand.ExecuteAsync(null);
+            Assert.True(viewModel.Playback.ShuffleEnabled);
             Assert.Contains("state=true", context.Handler.Requests.Last().Query);
             Assert.Contains("device_id=local-device", context.Handler.Requests.Last().Query);
             foreach (var state in new[] { "context", "track", "off" })
             {
-                await viewModel.CycleRepeatCommand.ExecuteAsync(null);
-                Assert.False(viewModel.ShuffleEnabled);
+                await viewModel.Playback.CycleRepeatCommand.ExecuteAsync(null);
+                Assert.False(viewModel.Playback.ShuffleEnabled);
                 Assert.Contains($"state={state}", context.Handler.Requests.Last().Query);
                 Assert.Contains("device_id=local-device", context.Handler.Requests.Last().Query);
             }
 
             context.Playback.PublishModes(false, 0);
             context.Playback.PublishModes(false, 2);
-            Assert.False(viewModel.ShuffleEnabled);
-            Assert.True(viewModel.IsRepeatOne);
-            await viewModel.ToggleShuffleCommand.ExecuteAsync(null);
-            Assert.True(viewModel.ShuffleEnabled);
-            Assert.Equal(0, viewModel.RepeatMode);
+            Assert.False(viewModel.Playback.ShuffleEnabled);
+            Assert.True(viewModel.Playback.IsRepeatOne);
+            await viewModel.Playback.ToggleShuffleCommand.ExecuteAsync(null);
+            Assert.True(viewModel.Playback.ShuffleEnabled);
+            Assert.Equal(0, viewModel.Playback.RepeatMode);
             Assert.Equal("/v1/me/player/repeat", context.Handler.Requests[^2].Path);
             Assert.Contains("state=off", context.Handler.Requests[^2].Query);
-            viewModel.IsBusy = true;
-            viewModel.NextTrackCommand.Execute(null);
-            viewModel.PreviousTrackCommand.Execute(null);
+            viewModel.State.IsBusy = true;
+            viewModel.Playback.NextTrackCommand.Execute(null);
+            viewModel.Playback.PreviousTrackCommand.Execute(null);
             Assert.Equal(1, context.Playback.NextCount);
             Assert.Equal(1, context.Playback.PreviousCount);
-            viewModel.IsBusy = false;
+            viewModel.State.IsBusy = false;
         }
 
         [Fact]
@@ -1082,22 +1082,22 @@ namespace KK.SFPlayer.Tests
             context.SeedToken(false);
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            await viewModel.PlayCardCommand.ExecuteAsync(viewModel.Playlists[0]);
-            Assert.Equal(10, viewModel.Volume);
+            await viewModel.Library.PlayCardCommand.ExecuteAsync(viewModel.Library.Playlists[0]);
+            Assert.Equal(10, viewModel.Playback.Volume);
             Assert.Equal(0.1, context.Playback.Volume);
-            viewModel.IsBusy = true;
+            viewModel.State.IsBusy = true;
 
-            Assert.True(viewModel.TogglePlaybackCommand.CanExecute(null));
-            viewModel.TogglePlaybackCommand.Execute(null);
+            Assert.True(viewModel.Playback.TogglePlaybackCommand.CanExecute(null));
+            viewModel.Playback.TogglePlaybackCommand.Execute(null);
             Assert.False(context.Playback.IsPlaying);
-            Assert.False(viewModel.IsPlaying);
-            viewModel.Volume = 23;
+            Assert.False(viewModel.Playback.IsPlaying);
+            viewModel.Playback.Volume = 23;
             Assert.Equal(0.23, context.Playback.Volume);
-            viewModel.Volume = 0;
+            viewModel.Playback.Volume = 0;
             Assert.Equal(0, context.Playback.Volume);
-            viewModel.TogglePlaybackCommand.Execute(null);
-            Assert.True(viewModel.IsPlaying);
-            viewModel.IsBusy = false;
+            viewModel.Playback.TogglePlaybackCommand.Execute(null);
+            Assert.True(viewModel.Playback.IsPlaying);
+            viewModel.State.IsBusy = false;
         }
 
         [Fact]
@@ -1192,14 +1192,14 @@ namespace KK.SFPlayer.Tests
             context.SeedToken();
             using var viewModel = new MainViewModel(context.Player, context.Store, context.Startup);
             await viewModel.InitializeAsync();
-            await viewModel.OpenPlaylistCommand.ExecuteAsync(viewModel.Playlists[0]);
+            await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(viewModel.Library.Playlists[0]);
 
-            await viewModel.PlayPlaylistCommand.ExecuteAsync(null);
+            await viewModel.Playlist.PlayPlaylistCommand.ExecuteAsync(null);
 
-            Assert.Equal(PlaybackConstants.NoDevice, viewModel.Status);
+            Assert.Equal(PlaybackConstants.NoDevice, viewModel.State.Status);
             Assert.Equal(1, context.Playback.ResetCount);
-            Assert.True(viewModel.IsConnected);
-            Assert.False(viewModel.IsBusy);
+            Assert.True(viewModel.State.IsConnected);
+            Assert.False(viewModel.State.IsBusy);
         }
 
         private static HttpResponseMessage Json(string content, HttpStatusCode status = HttpStatusCode.OK) => new(status)
