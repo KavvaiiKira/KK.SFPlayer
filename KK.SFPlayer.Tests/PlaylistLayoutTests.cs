@@ -132,6 +132,19 @@ namespace KK.SFPlayer.Tests
                 var volumeSlider = window.FindControl<Slider>("VolumeSlider")!;
                 player.PublishProgress(new PlaybackProgress(30000, 180000, true, "spotify:track:one"));
                 Layout(window);
+                var artwork = window.FindControl<Border>("NowPlayingArtwork")!;
+                var footer = window.FindControl<Grid>("PlaybackFooter")!;
+                Assert.True(artwork.IsVisible);
+                Assert.False(artwork.GetVisualDescendants().OfType<RemoteImage>().Single().CacheOnDisk);
+                Assert.True(artwork.GetVisualDescendants().OfType<RemoteImage>().Single().AutoRetry);
+                var volumeControl = window.FindControl<Button>("VolumeButton")!;
+                var topmostControl = window.FindControl<Button>("TopmostButton")!;
+                Assert.True(volumeControl.TranslatePoint(new Point(volumeControl.Bounds.Width, 0), window)!.Value.X + 12 <=
+                    topmostControl.TranslatePoint(default, window)!.Value.X);
+                Assert.Equal(footer.Bounds.Height, artwork.Bounds.Height);
+                Assert.Equal(artwork.Bounds.Width, artwork.Bounds.Height);
+                Assert.True(artwork.TranslatePoint(new Point(artwork.Bounds.Width, 0), window)!.Value.X <
+                    window.FindControl<Button>("ShuffleButton")!.TranslatePoint(default, window)!.Value.X);
                 Assert.Equal("0:30", viewModel.Playback.ElapsedTime);
                 Assert.Equal("-2:30", viewModel.Playback.RemainingTime);
                 var progressSlider = window.FindControl<Slider>("ProgressSlider")!;
@@ -387,7 +400,7 @@ namespace KK.SFPlayer.Tests
                 Assert.True(list.IsVisible);
                 Assert.Equal(new[] { 0, 10, 0 }, player.Pages);
                 Assert.True(window.CanResize);
-                Assert.Equal(450, window.MinWidth);
+                Assert.Equal(470, window.MinWidth);
                 Assert.Equal(450, window.MinHeight);
                 Assert.Equal(1280, window.MaxWidth);
                 Assert.Equal(720, window.MaxHeight);
@@ -397,6 +410,8 @@ namespace KK.SFPlayer.Tests
                 Layout(window, 1280, 720);
                 Assert.Equal(1280, window.Bounds.Width);
                 Assert.Equal(720, window.Bounds.Height);
+                Assert.Equal(1280, viewModel.WindowWidth);
+                Assert.Equal(720, viewModel.WindowHeight);
             }
             finally
             {
@@ -409,7 +424,7 @@ namespace KK.SFPlayer.Tests
             }
         }
 
-        private static void Layout(Window window, double width = 450, double height = 450)
+        private static void Layout(Window window, double width = 470, double height = 450)
         {
             window.Measure(new Size(width, height));
             window.Arrange(new Rect(0, 0, width, height));
@@ -440,10 +455,10 @@ namespace KK.SFPlayer.Tests
             public Task EnsurePlaylistFreshAsync(string playlistId, CancellationToken cancellationToken) => Task.CompletedTask;
             public List<string> VersionChecks { get; } = [];
 
-            public Task CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken)
+            public Task<PlaylistInfo?> CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken)
             {
                 VersionChecks.Add(playlistId);
-                return Task.CompletedTask;
+                return Task.FromResult<PlaylistInfo?>(null);
             }
             public event EventHandler<PlaybackProgress>? ProgressChanged;
 

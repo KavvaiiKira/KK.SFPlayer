@@ -16,6 +16,10 @@ namespace KK.SFPlayer.Controls
 {
     public sealed partial class RemoteImage : UserControl
     {
+        public static readonly StyledProperty<bool> AutoRetryProperty = AvaloniaProperty.Register<RemoteImage, bool>(nameof(AutoRetry));
+        public static readonly StyledProperty<bool> IsRetryVisibleProperty = AvaloniaProperty.Register<RemoteImage, bool>(nameof(IsRetryVisible));
+        public static readonly StyledProperty<string?> CacheVersionProperty = AvaloniaProperty.Register<RemoteImage, string?>(nameof(CacheVersion));
+        public static readonly StyledProperty<bool> CacheOnDiskProperty = AvaloniaProperty.Register<RemoteImage, bool>(nameof(CacheOnDisk), true);
         public static readonly StyledProperty<string?> UrlProperty = AvaloniaProperty.Register<RemoteImage, string?>(nameof(Url));
         public static readonly StyledProperty<Stretch> StretchProperty = AvaloniaProperty.Register<RemoteImage, Stretch>(nameof(Stretch), Stretch.Uniform);
         public static readonly StyledProperty<Bitmap?> ArtworkProperty = AvaloniaProperty.Register<RemoteImage, Bitmap?>(nameof(Artwork));
@@ -25,10 +29,36 @@ namespace KK.SFPlayer.Controls
 
         private static readonly HttpClient Client = new(new TransientRetryHandler()) { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly SemaphoreSlim Downloads = new(4, 4);
+        private static readonly ArtworkCacheStore Cache = new();
 
         private CancellationTokenSource? _download;
+        private readonly ArtworkCacheStore _currentArtwork = new(persist: false);
 
         public RemoteImage() => InitializeComponent();
+
+        public bool AutoRetry
+        {
+            get => GetValue(AutoRetryProperty);
+            set => SetValue(AutoRetryProperty, value);
+        }
+
+        public bool IsRetryVisible
+        {
+            get => GetValue(IsRetryVisibleProperty);
+            private set => SetValue(IsRetryVisibleProperty, value);
+        }
+
+        public string? CacheVersion
+        {
+            get => GetValue(CacheVersionProperty);
+            set => SetValue(CacheVersionProperty, value);
+        }
+
+        public bool CacheOnDisk
+        {
+            get => GetValue(CacheOnDiskProperty);
+            set => SetValue(CacheOnDiskProperty, value);
+        }
 
         public string? Url
         {
@@ -66,6 +96,8 @@ namespace KK.SFPlayer.Controls
             private set => SetValue(ErrorMessageProperty, value);
         }
 
+        private ArtworkCacheStore ImageCache => CacheOnDisk ? Cache : _currentArtwork;
+
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
@@ -83,9 +115,13 @@ namespace KK.SFPlayer.Controls
         {
             base.OnPropertyChanged(change);
 
-            if (change.Property == UrlProperty && this.IsAttachedToVisualTree())
+            if (change.Property == UrlProperty || change.Property == CacheOnDiskProperty || change.Property == CacheVersionProperty || change.Property == AutoRetryProperty)
             {
-                Reload();
+                _currentArtwork.ClearMemory();
+                if (this.IsAttachedToVisualTree())
+                {
+                    Reload();
+                }
             }
         }
 
@@ -104,6 +140,7 @@ namespace KK.SFPlayer.Controls
             previous?.Dispose();
 
             HasFailed = false;
+            IsRetryVisible = false;
             ErrorMessage = string.Empty;
             IsPlaceholderVisible = true;
         }
@@ -111,11 +148,35 @@ namespace KK.SFPlayer.Controls
         private void Reload()
         {
             _download?.Cancel();
-            _download = new CancellationTokenSource();
-
+            _download = null;
             ClearArtwork();
+            if (Url is { } url && ImageCache.TryGet(url, out var cached, CacheVersion))
+            {
+                try
+                {
+                    ApplyArtwork(cached);
+                    return;
+                }
+                catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException or NotSupportedException)
+                {
+                    InvalidateCachedArtwork(url);
+                }
+            }
 
+            _download = new CancellationTokenSource();
             _ = LoadAsync(Url, _download);
+        }
+
+        private void InvalidateCachedArtwork(string url) => ImageCache.Invalidate(url, CacheVersion);
+
+        private void ApplyArtwork(byte[] bytes)
+        {
+            using var stream = new MemoryStream(bytes);
+            Artwork = Bitmap.DecodeToWidth(stream, 96);
+            IsPlaceholderVisible = false;
+            HasFailed = false;
+            IsRetryVisible = false;
+            ErrorMessage = string.Empty;
         }
 
         private void ShowFailure(string message)
@@ -123,9 +184,38 @@ namespace KK.SFPlayer.Controls
             ErrorMessage = message;
             IsPlaceholderVisible = true;
             HasFailed = true;
+            IsRetryVisible = !AutoRetry;
         }
 
         private async Task LoadAsync(string? url, CancellationTokenSource download)
+        {
+            try
+            {
+                while (!download.IsCancellationRequested)
+                {
+                    await LoadOnceAsync(url, download);
+                    if (!AutoRetry || !HasFailed || download.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(ArtworkConstants.RetryDelaySeconds), download.Token);
+                }
+            }
+            catch (OperationCanceledException) when (download.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                if (ReferenceEquals(_download, download))
+                {
+                    _download = null;
+                }
+
+                download.Dispose();
+            }
+        }
+
+        private async Task LoadOnceAsync(string? url, CancellationTokenSource download)
         {
             try
             {
@@ -143,18 +233,9 @@ namespace KK.SFPlayer.Controls
                 await Downloads.WaitAsync(download.Token);
                 try
                 {
-                    var bytes = await Client.GetByteArrayAsync(uri, download.Token);
+                    var bytes = await ImageCache.LoadAsync(uri, Client, download.Token, CacheVersion);
                     download.Token.ThrowIfCancellationRequested();
-                    using var stream = new MemoryStream(bytes);
-                    var bitmap = Bitmap.DecodeToWidth(stream, 96);
-                    if (download.IsCancellationRequested)
-                    {
-                        bitmap.Dispose();
-                        return;
-                    }
-
-                    Artwork = bitmap;
-                    IsPlaceholderVisible = false;
+                    ApplyArtwork(bytes);
                 }
                 finally
                 {
@@ -175,16 +256,11 @@ namespace KK.SFPlayer.Controls
             }
             catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException or NotSupportedException)
             {
-                ShowFailure(ArtworkConstants.ArtworkInvalid);
-            }
-            finally
-            {
-                if (ReferenceEquals(_download, download))
+                if (url is not null)
                 {
-                    _download = null;
+                    InvalidateCachedArtwork(url);
                 }
-
-                download.Dispose();
+                ShowFailure(ArtworkConstants.ArtworkInvalid);
             }
         }
     }

@@ -67,7 +67,7 @@
                 CornerRadius="9"
                 ToolTip.Tip="{Binding #Root.ErrorMessage}"
                 AutomationProperties.Name="{x:Static constants:ArtworkConstants.RetryArtwork}"
-                IsVisible="{Binding #Root.HasFailed}"
+                IsVisible="{Binding #Root.IsRetryVisible}"
                 Click="OnRetryClick">
             <TextBlock FontFamily="Segoe UI Symbol"
                        FontSize="14"

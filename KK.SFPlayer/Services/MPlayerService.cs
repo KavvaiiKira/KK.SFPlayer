@@ -110,11 +110,31 @@ namespace KK.SFPlayer.Services
             }
         }
 
-        public async Task CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken)
+        public async Task<PlaylistInfo?> CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken)
         {
             var client = await GetClientAsync(cancellationToken);
-            var playlist = await client.Playlists.Get(playlistId, new PlaylistGetRequest { Fields = { "snapshot_id" } }, cancellationToken);
+            var playlist = await client.Playlists.Get(playlistId, new PlaylistGetRequest { Fields = { "id,uri,name,owner(display_name),snapshot_id,images(url)" } }, cancellationToken);
             RegisterSnapshot(playlistId, playlist.SnapshotId);
+            if (playlist.Images is null)
+            {
+                return null;
+            }
+
+            var updated = new PlaylistInfo(
+                playlist.Id ?? playlistId,
+                playlist.Uri ?? $"spotify:playlist:{playlistId}",
+                playlist.Name ?? PlaybackConstants.UnnamedPlaylist,
+                playlist.Owner?.DisplayName ?? string.Empty,
+                playlist.Images.FirstOrDefault()?.Url,
+                playlist.SnapshotId);
+            if (_cache.LoadLibrary(_clientId) is { } cached && cached.Playlists.Any(item => item.Id == playlistId))
+            {
+                TrySaveCache(() => _cache.SaveLibrary(_clientId, cached with
+                {
+                    Playlists = cached.Playlists.Select(item => item.Id == playlistId ? updated : item).ToArray(),
+                }));
+            }
+            return updated;
         }
 
         public void Seek(int positionMs) => _playback?.Seek(Math.Max(0, positionMs));

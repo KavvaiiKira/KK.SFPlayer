@@ -2,6 +2,7 @@ namespace KK.SFPlayer.Constants
 {
     public static class ArtworkConstants
     {
+        public const int RetryDelaySeconds = 15;
         public const string RetryArtwork = "Retry artwork";
         public const string RetryArtworkIcon = "↻";
         public const string ArtworkUnavailable = "Artwork is unavailable. Click to retry.";

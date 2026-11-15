@@ -17,6 +17,9 @@ namespace KK.SFPlayer.ViewModels
 
         private PlaybackProgress _progress = new(0, 0, false, null);
 
+        [ObservableProperty]
+        private string? _artworkUrl;
+
         private string? _seekTrackUri;
         private TaskCompletionSource? _playbackReady;
         private string? _requestedTrackUri;
@@ -104,6 +107,8 @@ namespace KK.SFPlayer.ViewModels
             State.PropertyChanged += OnStateChanged;
         }
 
+        public bool HasCurrentTrack => _progress.TrackUri is not null;
+
         public bool HasNowPlaying => !State.HasStatus && !string.IsNullOrWhiteSpace(NowPlaying);
 
         public bool IsSeeking { get; private set; }
@@ -183,7 +188,7 @@ namespace KK.SFPlayer.ViewModels
             IsStarting = true;
             IsPlaying = false;
             _requestedTrackUri = track.Uri;
-            OnProgressChanged(this, new PlaybackProgress(0, track.DurationMs, false, track.Uri, playlistUri, track.Name, track.Artists));
+            OnProgressChanged(this, new PlaybackProgress(0, track.DurationMs, false, track.Uri, playlistUri, track.Name, track.Artists, ArtworkUrl: track.ImageUrl));
             var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _playbackReady = ready;
             try
@@ -261,6 +266,8 @@ namespace KK.SFPlayer.ViewModels
             var trackChanged = _progress.TrackUri != progress.TrackUri || _progress.OriginalTrackUri != progress.OriginalTrackUri;
             var playlistChanged = _progress.ContextUri != progress.ContextUri;
             _progress = progress;
+            ArtworkUrl = progress.ArtworkUrl;
+            OnPropertyChanged(nameof(HasCurrentTrack));
             NowPlaying = string.IsNullOrWhiteSpace(progress.TrackName) ? string.Empty :
                 string.IsNullOrWhiteSpace(progress.Artists) ? progress.TrackName : $"{progress.TrackName} — {progress.Artists}";
             if (trackChanged)

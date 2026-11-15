@@ -25,7 +25,7 @@ namespace KK.SFPlayer.Services
 
         Task EnsurePlaylistFreshAsync(string playlistId, CancellationToken cancellationToken);
 
-        Task CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken);
+        Task<PlaylistInfo?> CheckPlaylistVersionAsync(string playlistId, CancellationToken cancellationToken);
 
         void Seek(int positionMs);
 

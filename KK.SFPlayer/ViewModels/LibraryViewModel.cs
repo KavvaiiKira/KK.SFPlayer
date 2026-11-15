@@ -77,6 +77,22 @@ namespace KK.SFPlayer.ViewModels
             _saveSort(playlistId, sort);
         }
 
+        public void UpdatePlaylist(PlaylistInfo playlist)
+        {
+            for (var index = 0; index < Playlists.Count; index++)
+            {
+                if (Playlists[index].Id == playlist.Id)
+                {
+                    Playlists[index] = playlist;
+                    break;
+                }
+            }
+            if (PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlist.Id) is { } card)
+            {
+                card.Playlist = playlist;
+            }
+        }
+
         public void UpdateTracks(string playlistId, IEnumerable<TrackInfo> tracks, string? duration = null, bool replace = false) =>
             PlaylistCards.FirstOrDefault(card => card.Playlist.Id == playlistId)?.UseTracks(tracks, duration, replace);
 

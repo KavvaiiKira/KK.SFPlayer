@@ -97,7 +97,11 @@ namespace KK.SFPlayer.ViewModels
 
         public Task RefreshAsync() => SelectedPlaylist is { } playlist ? State.RunAsync(async token =>
         {
-            await _player.CheckPlaylistVersionAsync(playlist.Id, token);
+            if (await _player.CheckPlaylistVersionAsync(playlist.Id, token) is { } updated)
+            {
+                SelectedPlaylist = updated;
+                _library.UpdatePlaylist(updated);
+            }
             await _player.EnsurePlaylistFreshAsync(playlist.Id, token);
             _pendingPlaylistUpdates.Remove(playlist.Id);
             ResetTrackPages();

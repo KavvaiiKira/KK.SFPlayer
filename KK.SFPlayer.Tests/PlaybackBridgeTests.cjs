@@ -318,3 +318,14 @@ test("track relinking preserves the original playlist track identity", () => {
     assert.equal(bridge.messages.at(-1).trackUri, "spotify:track:regional");
     assert.equal(bridge.messages.at(-1).originalTrackUri, "spotify:track:original");
 });
+
+test("current album artwork is published with playback state", () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    bridge.players[0].listeners.player_state_changed({
+        paused: false, duration: 180000,
+        track_window: { current_track: { uri: "spotify:track:one", album: { images: [{ url: "https://example.com/cover" }] } } }
+    });
+    assert.equal(bridge.messages.at(-1).artworkUrl, "https://example.com/cover");
+});

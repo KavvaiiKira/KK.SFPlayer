@@ -26,6 +26,10 @@ namespace KK.SFPlayer.ViewModels
         private readonly Dictionary<int, TrackInfo> _knownTracks = [];
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ImageUrl))]
+        private PlaylistInfo _playlist;
+
+        [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RetryCommand))]
         private bool _isLoading;
 
@@ -44,13 +48,11 @@ namespace KK.SFPlayer.ViewModels
 
         internal PlaylistCardViewModel(PlaylistInfo playlist, IMPlayerService player, ICommand openSpotifyCommand, CancellationToken lifetime)
         {
-            Playlist = playlist;
+            _playlist = playlist;
             _player = player;
             _lifetime = lifetime;
             OpenSpotifyCommand = openSpotifyCommand;
         }
-
-        public PlaylistInfo Playlist { get; }
 
         public string? ImageUrl => _isVisible ? Playlist.ImageUrl : null;
 

@@ -43,6 +43,7 @@
             canSeek: duration > 0 && !state.disallows?.seeking,
             trackUri: state.track_window?.current_track?.uri || null,
             originalTrackUri: state.track_window?.current_track?.linked_from?.uri || null,
+            artworkUrl: state.track_window?.current_track?.album?.images?.find(image => image.url)?.url || null,
             contextUri: state.context?.uri || null,
             trackName: state.track_window?.current_track?.name || null,
             artists: state.track_window?.current_track?.artists?.map(artist => artist.name).join(", ") || null

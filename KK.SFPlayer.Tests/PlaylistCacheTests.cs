@@ -16,6 +16,43 @@ namespace KK.SFPlayer.Tests
 {
     public sealed partial class SpotifyIntegrationTests
     {
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task VersionCheckUpdatesPlaylistCoverIndependentlyOfTrackSnapshot(bool changedSnapshot)
+        {
+            using var context = new TestContext(request => request.Path switch
+            {
+                "/v1/me/playlists" => Json("""{"items":[{"id":"demo","uri":"spotify:playlist:demo","name":"Demo","snapshot_id":"v1","images":[{"url":"https://example.com/old"}]}],"next":null}"""),
+                "/v1/playlists/demo/items" => CacheTracks(["one"]),
+                "/v1/playlists/demo" => Json(JsonSerializer.Serialize(new
+                {
+                    id = "demo",
+                    uri = "spotify:playlist:demo",
+                    name = "Demo",
+                    snapshot_id = changedSnapshot ? "v2" : "v1",
+                    images = new[] { new { url = "https://example.com/new" } },
+                })),
+                _ => throw new InvalidOperationException(request.Path),
+            });
+            context.SeedToken(false);
+            using var model = new MainViewModel(context.Player, context.Store, context.Startup);
+            await model.InitializeAsync();
+            await model.Library.OpenPlaylistCommand.ExecuteAsync(model.Library.Playlists[0]);
+            await context.Player.WaitForBackgroundWorkAsync();
+            var trackRequests = context.Handler.Requests.Count(request => request.Path.EndsWith("/items", StringComparison.Ordinal));
+
+            await model.Playlist.RefreshAsync();
+
+            Assert.Equal("https://example.com/new", model.Playlist.SelectedPlaylist?.ImageUrl);
+            Assert.Equal("https://example.com/new", model.Library.PlaylistCards[0].Playlist.ImageUrl);
+            Assert.Equal("https://example.com/new", model.Library.Playlists[0].ImageUrl);
+            Assert.Equal("https://example.com/new", context.Player.GetCachedPlaylists()?.Playlists[0].ImageUrl);
+            var afterRefresh = context.Handler.Requests.Count(request => request.Path.EndsWith("/items", StringComparison.Ordinal));
+            Assert.Equal(changedSnapshot ? trackRequests + 1 : trackRequests, afterRefresh);
+            Assert.Contains("images", Uri.UnescapeDataString(context.Handler.Requests.Single(request => request.Path == "/v1/playlists/demo").Query));
+        }
+
         [Fact]
         public async Task BackgroundWarmupReusesFirstPageAndKeepsOriginalCursorWithUnavailableTracks()
         {

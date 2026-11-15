@@ -21,6 +21,13 @@ namespace KK.SFPlayer.ViewModels
         private AppSettings _settings = new();
 
         private bool _disposed;
+        private bool _settingsLoaded;
+
+        [ObservableProperty]
+        private double _windowWidth = WindowConstants.MinimumWidth;
+
+        [ObservableProperty]
+        private double _windowHeight = WindowConstants.MinimumHeight;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(TopmostTooltip))]
@@ -90,6 +97,12 @@ namespace KK.SFPlayer.ViewModels
             {
                 _settings = _store.Load();
                 AlwaysOnTop = _settings.AlwaysOnTop;
+                WindowWidth = double.IsFinite(_settings.WindowWidth) ?
+                    Math.Clamp(_settings.WindowWidth, WindowConstants.MinimumWidth, WindowConstants.MaximumWidth) : WindowConstants.MinimumWidth;
+                WindowHeight = double.IsFinite(_settings.WindowHeight) ?
+                    Math.Clamp(_settings.WindowHeight, WindowConstants.MinimumHeight, WindowConstants.MaximumHeight) : WindowConstants.MinimumHeight;
+                Playback.Volume = double.IsFinite(_settings.Volume) ? Math.Clamp(_settings.Volume, 0, 100) : StreamingConstants.DefaultVolume * 100;
+                _settingsLoaded = true;
                 OnPropertyChanged(nameof(HasClientId));
                 OnPropertyChanged(nameof(NeedsLogin));
             }
@@ -123,6 +136,7 @@ namespace KK.SFPlayer.ViewModels
             {
                 return;
             }
+            SaveSessionPreferences();
             _disposed = true;
             State.PropertyChanged -= OnStateChanged;
             State.AuthorizationLost -= OnAuthorizationLost;
@@ -266,6 +280,30 @@ namespace KK.SFPlayer.ViewModels
         {
             await Task.WhenAll(State.Completion, Library.Completion, Playback.Completion).ConfigureAwait(false);
             _player.Dispose();
+        }
+
+        private void SaveSessionPreferences()
+        {
+            if (!_settingsLoaded)
+            {
+                return;
+            }
+
+            var next = _settings with
+            {
+                Volume = Playback.Volume,
+                WindowWidth = WindowWidth,
+                WindowHeight = WindowHeight,
+            };
+            try
+            {
+                _store.Save(next);
+                _settings = next;
+            }
+            catch (Exception exception)
+            {
+                State.Status = ErrorMessages.From(exception);
+            }
         }
 
         private Task OpenPlaylistAsync(PlaylistInfo playlist) => Playlist.OpenAsync(playlist);

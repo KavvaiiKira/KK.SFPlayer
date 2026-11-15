@@ -17,7 +17,8 @@
         </Button>
         <Grid Grid.Row="2" ColumnDefinitions="80,12,*">
             <Grid Classes="playlist-cover">
-                <controls:RemoteImage Width="80" Height="80" Url="{Binding SelectedPlaylist.ImageUrl}" />
+                <controls:RemoteImage Width="80" Height="80" Url="{Binding SelectedPlaylist.ImageUrl}"
+                                      CacheVersion="{Binding SelectedPlaylist.SnapshotId}" />
                 <Button Classes="icon-button cover-play" Width="36" Height="36"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         Command="{Binding PlayPlaylistCommand}"
