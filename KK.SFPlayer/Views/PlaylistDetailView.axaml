@@ -57,9 +57,23 @@
                             Tapped="OnTrackTapped">
                         <Grid ColumnDefinitions="18,*,12,Auto">
                             <Grid Width="10" Height="12" VerticalAlignment="Center">
-                                <PathIcon Classes="playing-indicator" Width="9" Height="10"
-                                          Data="M0,7 H3 V16 H0 Z M5,0 H8 V16 H5 Z M10,4 H13 V16 H10 Z"
-                                          Foreground="{DynamicResource AppPrimaryHoverBrush}" />
+                                <Grid Classes="playing-indicator" Width="9" Height="10" ColumnDefinitions="2,1.5,2,1.5,2">
+                                    <Border Classes="equalizer-bar left" RenderTransformOrigin="50%,100%">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform ScaleY="0.35" />
+                                        </Border.RenderTransform>
+                                    </Border>
+                                    <Border Grid.Column="2" Classes="equalizer-bar middle" RenderTransformOrigin="50%,100%">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform ScaleY="0.85" />
+                                        </Border.RenderTransform>
+                                    </Border>
+                                    <Border Grid.Column="4" Classes="equalizer-bar right" RenderTransformOrigin="50%,100%">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform ScaleY="0.55" />
+                                        </Border.RenderTransform>
+                                    </Border>
+                                </Grid>
                                 <PathIcon Classes="paused-indicator" Width="8" Height="10"
                                           Data="M2,2 H7 V18 H2 Z M11,2 H16 V18 H11 Z"
                                           Foreground="{DynamicResource AppPrimaryHoverBrush}" />

@@ -9,6 +9,8 @@ namespace KK.SFPlayer.Services
     {
         bool IsConnected { get; }
 
+        event EventHandler<bool>? PreparationChanged;
+
         event EventHandler<bool>? PlayingChanged;
 
         event EventHandler<PlaybackModes>? ModesChanged;

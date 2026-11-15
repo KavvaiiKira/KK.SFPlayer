@@ -206,6 +206,15 @@ namespace KK.SFPlayer.Tests
                     context.Handler.Requests.Count(item => item.Path.EndsWith("/items", StringComparison.Ordinal)));
             }
 
+            var playingPlaylist = openPlaylist ? viewModel.Library.Playlists[1] : viewModel.Library.Playlists[0];
+            context.Playback.PublishProgress(new PlaybackProgress(1000, 180000, true, $"spotify:track:{expectedPosition}"));
+            if (!openPlaylist)
+            {
+                await viewModel.Library.OpenPlaylistCommand.ExecuteAsync(playingPlaylist);
+            }
+            Assert.Equal(viewModel.Playlist.SelectedPlaylist?.Uri, viewModel.Playback.CurrentPlaylistUri);
+            Assert.Equal($"spotify:track:{expectedPosition}", viewModel.Playback.CurrentTrackUri);
+
             var request = Assert.Single(context.Handler.Requests, item => item.Path == "/v1/me/player/play");
             using var body = JsonDocument.Parse(request.Body);
             if (sort == 0)
@@ -1125,6 +1134,111 @@ namespace KK.SFPlayer.Tests
             Assert.Equal(1, context.Playback.ResetCount);
         }
 
+        [Theory]
+        [InlineData(0, null)]
+        [InlineData(1, null)]
+        [InlineData(0, "spotify:trackset:queue")]
+        [InlineData(1, "spotify:trackset:queue")]
+        [InlineData(1, "spotify:album:queue")]
+        [InlineData(0, "spotify:album:queue")]
+        [InlineData(0, "spotify:user:owner:playlist:demo")]
+        public async Task PlaybackWithoutSdkContextKeepsPlaylistBeforeAndAfterPlayResponse(int sort, string? sdkContext)
+        {
+            using var context = new TestContext(request => request.Path.EndsWith("/items", StringComparison.Ordinal) ?
+                Json("{\"items\":[{\"item\":" + TrackJson + "}],\"total\":1,\"next\":null}") :
+                new HttpResponseMessage(HttpStatusCode.NoContent));
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+            await context.Player.GetSortedTrackPageAsync("demo", sort, 0, CancellationToken.None);
+            PlaybackProgress? current = null;
+            context.Player.ProgressChanged += (_, progress) => current = progress;
+            context.Handler.AsyncResponse = (request, _) =>
+            {
+                if (request.Path == "/v1/me/player/play")
+                {
+                    context.Playback.PublishProgress(new PlaybackProgress(0, 185000, true, "spotify:track:one", sdkContext));
+                    Assert.Equal("spotify:playlist:demo", current?.ContextUri);
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+            };
+
+            await context.Player.PlayAsync("spotify:playlist:demo", 0, CancellationToken.None, "spotify:track:one", sort);
+            context.Playback.PublishProgress(new PlaybackProgress(1000, 185000, true, "spotify:track:next", sdkContext));
+            Assert.Equal("spotify:playlist:demo", current?.ContextUri);
+            Assert.Equal("spotify:track:next", current?.TrackUri);
+            context.Playback.PublishProgress(new PlaybackProgress(0, 185000, true, "spotify:track:other", "spotify:playlist:other"));
+            Assert.Equal("spotify:playlist:other", current?.ContextUri);
+            context.Player.Disconnect();
+            context.Playback.PublishProgress(new PlaybackProgress(0, 185000, true, "spotify:track:one"));
+            Assert.Null(current?.ContextUri);
+        }
+
+        [Fact]
+        public async Task LoaderWaitsForPlayingTrackAndIgnoresStaleProgress()
+        {
+            using var context = new TestContext(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+            context.Handler.PlaybackStarted = null;
+            using var state = new PlayerUiState { IsConnected = true };
+            using var playback = new PlaybackViewModel(context.Player, state, () => Task.CompletedTask, () => true);
+            var track = new TrackInfo("spotify:track:one", "First", "Artist", "3:00", null, 0, 180000);
+
+            var start = playback.PlayAsync("spotify:playlist:demo", track, 0, state.CancellationToken);
+            Assert.True(playback.IsLoading);
+            Assert.False(start.IsCompleted);
+            Assert.True(playback.IsCurrentTrack(track.Uri));
+            Assert.False(playback.TogglePlaybackCommand.CanExecute(null));
+            context.Playback.PublishPlaying(true);
+            context.Playback.PublishProgress(new PlaybackProgress(5000, 180000, true, "spotify:track:old"));
+            Assert.False(start.IsCompleted);
+            Assert.True(playback.IsCurrentTrack(track.Uri));
+            context.Playback.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:relinked",
+                "spotify:trackset:queue", OriginalTrackUri: track.Uri));
+            await start;
+
+            Assert.False(playback.IsLoading);
+            Assert.True(playback.IsCurrentTrack(track.Uri));
+            Assert.Equal("spotify:playlist:demo", playback.CurrentPlaylistUri);
+            Assert.True(playback.TogglePlaybackCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task PlaybackErrorStopsLoaderAndAllowsAnotherStart()
+        {
+            using var context = new TestContext(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+            context.Handler.PlaybackStarted = null;
+            using var state = new PlayerUiState { IsConnected = true };
+            using var playback = new PlaybackViewModel(context.Player, state, () => Task.CompletedTask, () => true);
+            var track = new TrackInfo("spotify:track:one", "First", "Artist", "3:00", null, 0, 180000);
+            var start = playback.PlayAsync("spotify:playlist:demo", track, 0, state.CancellationToken);
+            playback.ReportError(StreamingConstants.PlaybackFailed);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+            Assert.False(playback.IsLoading);
+            Assert.False(playback.HasPlayback);
+            Assert.Null(playback.CurrentTrackUri);
+            Assert.True(playback.TogglePlaybackCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task PlayDoesNotRepeatShuffleRequestWhenSdkAlreadyConfirmsMode()
+        {
+            using var context = new TestContext(request => request.Path == "/v1/me/player/play" ?
+                new HttpResponseMessage(HttpStatusCode.NoContent) :
+                throw new InvalidOperationException("Redundant Spotify request: " + request.Path));
+            context.SeedToken(false);
+            await context.Player.RestoreAsync(ClientId, CancellationToken.None);
+            context.Playback.PublishModes(false, 0);
+
+            await context.Player.PlayAsync("spotify:playlist:demo", 0, CancellationToken.None);
+
+            Assert.Single(context.Handler.Requests);
+            Assert.Equal("/v1/me/player/play", context.Handler.Requests[0].Path);
+        }
+
         [Fact]
         public async Task OldAuthorizationRequiresNewStreamingConsentBeforePlayback()
         {
@@ -1212,7 +1326,14 @@ namespace KK.SFPlayer.Tests
                 _ownsDirectory = directory is null;
                 Directory = directory ?? Path.Combine(Path.GetTempPath(), "KK.SFPlayer.Tests", Guid.NewGuid().ToString("N"));
                 Store = new SettingsStore(Directory);
-                Handler = new FakeSpotifyHandler(respond);
+                Handler = new FakeSpotifyHandler(respond)
+                {
+                    PlaybackStarted = (uri, contextUri) =>
+                    {
+                        Playback.PublishPlaying(true);
+                        Playback.PublishProgress(new PlaybackProgress(0, 180000, true, uri, contextUri));
+                    },
+                };
                 Player = new MPlayerService(Store, SpotifyClientConfig.CreateDefault()
                     .WithHTTPClient(new NetHttpClient(new HttpClient(Handler))), Playback);
             }
@@ -1266,6 +1387,12 @@ namespace KK.SFPlayer.Tests
             public void Seek(int positionMs) => Seeks.Add(positionMs);
 
             public void PublishProgress(PlaybackProgress progress) => ProgressChanged?.Invoke(this, progress);
+
+            public void PublishPlaying(bool playing)
+            {
+                IsPlaying = playing;
+                PlayingChanged?.Invoke(this, playing);
+            }
 
             public event EventHandler<PlaybackModes>? ModesChanged;
 
@@ -1337,6 +1464,10 @@ namespace KK.SFPlayer.Tests
 
         private sealed class FakeSpotifyHandler(Func<CapturedRequest, HttpResponseMessage> respond) : HttpMessageHandler
         {
+            private readonly Dictionary<string, Dictionary<int, string>> _trackUris = [];
+
+            public Action<string?, string?>? PlaybackStarted { get; set; }
+
             public Func<CapturedRequest, CancellationToken, Task<HttpResponseMessage>>? AsyncResponse { get; set; }
             public List<CapturedRequest> Requests { get; } = [];
 
@@ -1348,7 +1479,38 @@ namespace KK.SFPlayer.Tests
                     request.RequestUri.Query,
                     request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
                 Requests.Add(captured);
-                return AsyncResponse is { } asyncResponse ? await asyncResponse(captured, cancellationToken) : respond(captured);
+                var response = AsyncResponse is { } asyncResponse ? await asyncResponse(captured, cancellationToken) : respond(captured);
+                if (response.IsSuccessStatusCode && captured.Path.EndsWith("/items", StringComparison.Ordinal))
+                {
+                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                    var playlistUri = "spotify:playlist:" + captured.Path.Split('/')[3];
+                    if (!_trackUris.TryGetValue(playlistUri, out var tracks))
+                    {
+                        _trackUris[playlistUri] = tracks = [];
+                    }
+                    var offsetParameter = captured.Query.TrimStart('?').Split('&').FirstOrDefault(part => part.StartsWith("offset=", StringComparison.Ordinal));
+                    var offset = offsetParameter is null ? 0 : int.Parse(offsetParameter.Split('=')[1]);
+                    foreach (var entry in document.RootElement.GetProperty("items").EnumerateArray())
+                    {
+                        if ((entry.TryGetProperty("item", out var track) || entry.TryGetProperty("track", out track)) &&
+                            track.ValueKind == JsonValueKind.Object && track.TryGetProperty("uri", out var uri))
+                        {
+                            tracks[offset] = uri.GetString()!;
+                        }
+                        offset++;
+                    }
+                }
+                if (response.IsSuccessStatusCode && captured.Path == "/v1/me/player/play")
+                {
+                    using var document = JsonDocument.Parse(captured.Body);
+                    var body = document.RootElement;
+                    var position = body.TryGetProperty("offset", out var offset) ? offset.GetProperty("position").GetInt32() : 0;
+                    var contextUri = body.TryGetProperty("context_uri", out var context) ? context.GetString() : null;
+                    var uri = body.TryGetProperty("uris", out var uris) ? uris[position].GetString() :
+                        contextUri is not null && _trackUris.TryGetValue(contextUri, out var tracks) ? tracks.GetValueOrDefault(position) : null;
+                    PlaybackStarted?.Invoke(uri, contextUri);
+                }
+                return response;
             }
         }
     }

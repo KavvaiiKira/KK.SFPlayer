@@ -306,3 +306,15 @@ test("closing the page cancels queued transport commands", async () => {
     await settle();
     assert.equal(bridge.players[0].nextCount, 0);
 });
+
+test("track relinking preserves the original playlist track identity", () => {
+    const bridge = createBridge();
+    bridge.send({ type: "connect", name: "KK.SFPlayer" });
+    bridge.window.onSpotifyWebPlaybackSDKReady();
+    bridge.players[0].listeners.player_state_changed({
+        paused: false, position: 0, duration: 180000,
+        track_window: { current_track: { uri: "spotify:track:regional", linked_from: { uri: "spotify:track:original" } } }
+    });
+    assert.equal(bridge.messages.at(-1).trackUri, "spotify:track:regional");
+    assert.equal(bridge.messages.at(-1).originalTrackUri, "spotify:track:original");
+});

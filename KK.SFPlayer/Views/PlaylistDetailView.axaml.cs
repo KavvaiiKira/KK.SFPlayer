@@ -96,7 +96,7 @@ namespace KK.SFPlayer.Views
             var playlistMatches = _model?.SelectedPlaylist?.Uri is { } playlistUri && playlistUri == _model.Playback.CurrentPlaylistUri;
             foreach (var row in TracksList.GetVisualDescendants().OfType<Border>().Where(border => border.Classes.Contains("track-row")))
             {
-                var current = playlistMatches && row.DataContext is TrackInfo track && track.Uri == _model?.Playback.CurrentTrackUri;
+                var current = playlistMatches && row.DataContext is TrackInfo track && _model?.Playback.IsCurrentTrack(track.Uri) == true;
                 row.Classes.Set("current", current);
                 row.Classes.Set("playing", current && _model?.Playback.IsPlaying == true);
             }

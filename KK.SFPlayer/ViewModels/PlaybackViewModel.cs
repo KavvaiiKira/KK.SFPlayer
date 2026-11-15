@@ -18,6 +18,18 @@ namespace KK.SFPlayer.ViewModels
         private PlaybackProgress _progress = new(0, 0, false, null);
 
         private string? _seekTrackUri;
+        private TaskCompletionSource? _playbackReady;
+        private string? _requestedTrackUri;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsLoading))]
+        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        private bool _isPreparing;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsLoading))]
+        [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        private bool _isStarting;
 
         private readonly SemaphoreSlim _modeGate = new(1, 1);
 
@@ -53,6 +65,7 @@ namespace KK.SFPlayer.ViewModels
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(TogglePlaybackCommand))]
         [NotifyPropertyChangedFor(nameof(PlaybackTooltip))]
+        [NotifyPropertyChangedFor(nameof(IsLoading))]
         private bool _hasPlayback;
 
         [ObservableProperty]
@@ -84,6 +97,7 @@ namespace KK.SFPlayer.ViewModels
             State = state;
             _startPlayback = startPlayback;
             _canStartPlayback = canStartPlayback;
+            _player.PreparationChanged += OnPreparationChanged;
             _player.PlayingChanged += OnPlayingChanged;
             _player.ModesChanged += OnModesChanged;
             _player.ProgressChanged += OnProgressChanged;
@@ -117,22 +131,28 @@ namespace KK.SFPlayer.ViewModels
 
         public bool IsRepeatOne => RepeatMode == 2;
 
-        public bool CanUseTransport => State.IsConnected && HasPlayback;
+        public bool IsLoading => IsPreparing || IsStarting || (State.IsConnected && State.IsBusy && !HasPlayback);
+
+        public bool CanUseTransport => State.IsConnected && HasPlayback && !IsStarting;
 
         public bool CanChangeModes => CanUseTransport;
 
-        public string PlaybackTooltip => IsPlaying ? StreamingConstants.Pause :
+        public string PlaybackTooltip => IsLoading ? StreamingConstants.Loading :
+            IsPlaying ? StreamingConstants.Pause :
             HasPlayback ? StreamingConstants.Resume : StreamingConstants.Play;
 
         public PlayerUiState State { get; }
 
-        public bool CanTogglePlayback => State.IsConnected && (HasPlayback || (State.CanEdit && _canStartPlayback()));
+        public bool CanTogglePlayback => State.IsConnected && !IsPreparing && !IsStarting &&
+            (HasPlayback || (State.CanEdit && _canStartPlayback()));
 
         internal Task Completion => Task.WhenAll(new[]
         {
             ToggleShuffleCommand.ExecutionTask, CycleRepeatCommand.ExecutionTask,
             NextTrackCommand.ExecutionTask, PreviousTrackCommand.ExecutionTask, TogglePlaybackCommand.ExecutionTask,
         }.OfType<Task>());
+
+        public bool IsCurrentTrack(string uri) => _progress.TrackUri == uri || _progress.OriginalTrackUri == uri;
 
         public void BeginSeek()
         {
@@ -158,11 +178,43 @@ namespace KK.SFPlayer.ViewModels
             }
         }
 
-        public void MarkStarted()
+        public async Task PlayAsync(string playlistUri, TrackInfo track, int sort, CancellationToken cancellationToken)
         {
-            HasPlayback = true;
-            IsPlaying = true;
-            State.Status = string.Empty;
+            IsStarting = true;
+            IsPlaying = false;
+            _requestedTrackUri = track.Uri;
+            OnProgressChanged(this, new PlaybackProgress(0, track.DurationMs, false, track.Uri, playlistUri, track.Name, track.Artists));
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _playbackReady = ready;
+            try
+            {
+                await _player.PlayAsync(playlistUri, track.Position, cancellationToken, track.Uri, sort);
+                HasPlayback = true;
+                await ready.Task.WaitAsync(TimeSpan.FromSeconds(StreamingConstants.ConnectionTimeoutSeconds), cancellationToken);
+                State.Status = string.Empty;
+            }
+            catch (TimeoutException exception)
+            {
+                throw new InvalidOperationException(StreamingConstants.PlaybackFailed, exception);
+            }
+            finally
+            {
+                _playbackReady = null;
+                _requestedTrackUri = null;
+                IsStarting = false;
+                if (!ready.Task.IsCompletedSuccessfully)
+                {
+                    HasPlayback = false;
+                    IsPlaying = false;
+                    OnProgressChanged(this, new PlaybackProgress(0, 0, false, null));
+                }
+            }
+        }
+
+        public void ReportError(string message)
+        {
+            State.Status = message;
+            _playbackReady?.TrySetException(new InvalidOperationException(message));
         }
 
         public void RefreshCommands()
@@ -173,6 +225,8 @@ namespace KK.SFPlayer.ViewModels
 
         public void Dispose()
         {
+            _playbackReady?.TrySetCanceled();
+            _player.PreparationChanged -= OnPreparationChanged;
             _player.PlayingChanged -= OnPlayingChanged;
             _player.ModesChanged -= OnModesChanged;
             _player.ProgressChanged -= OnProgressChanged;
@@ -188,12 +242,23 @@ namespace KK.SFPlayer.ViewModels
 
         private void OnProgressChanged(object? sender, PlaybackProgress progress)
         {
+            if (IsStarting && _requestedTrackUri is { } requested &&
+                progress.TrackUri != requested && progress.OriginalTrackUri != requested)
+            {
+                return;
+            }
+
+            if (IsStarting && IsPlaying)
+            {
+                _playbackReady?.TrySetResult();
+            }
+
             if (IsSeeking && _seekTrackUri != progress.TrackUri)
             {
                 IsSeeking = false;
             }
 
-            var trackChanged = _progress.TrackUri != progress.TrackUri;
+            var trackChanged = _progress.TrackUri != progress.TrackUri || _progress.OriginalTrackUri != progress.OriginalTrackUri;
             var playlistChanged = _progress.ContextUri != progress.ContextUri;
             _progress = progress;
             NowPlaying = string.IsNullOrWhiteSpace(progress.TrackName) ? string.Empty :
@@ -216,6 +281,10 @@ namespace KK.SFPlayer.ViewModels
         }
 
         partial void OnHasPlaybackChanged(bool value) => UpdateTransportCommands();
+
+        partial void OnIsStartingChanged(bool value) => RefreshCommands();
+
+        partial void OnIsPreparingChanged(bool value) => RefreshCommands();
 
         private void UpdateTransportCommands()
         {
@@ -368,6 +437,8 @@ namespace KK.SFPlayer.ViewModels
             }
         }
 
+        private void OnPreparationChanged(object? sender, bool preparing) => IsPreparing = preparing;
+
         private void OnPlayingChanged(object? sender, bool playing)
         {
             IsPlaying = playing;
@@ -384,6 +455,8 @@ namespace KK.SFPlayer.ViewModels
         {
             RefreshCommands();
             OnPropertyChanged(nameof(HasNowPlaying));
+            OnPropertyChanged(nameof(IsLoading));
+            OnPropertyChanged(nameof(PlaybackTooltip));
             if (e.PropertyName == nameof(PlayerUiState.IsConnected) && !State.IsConnected)
             {
                 _pendingModes = null;

@@ -20,7 +20,7 @@ namespace KK.SFPlayer
                 var playback = new WebPlaybackEngine(() => desktop.MainWindow?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
                 var player = new MPlayerService(settings, playback: playback);
                 var viewModel = new MainViewModel(player, settings, new StartupService());
-                playback.PlaybackError += (_, message) => viewModel.State.Status = message;
+                playback.PlaybackError += (_, message) => viewModel.Playback.ReportError(message);
                 desktop.MainWindow = new MainWindow { DataContext = viewModel };
                 desktop.MainWindow.Opened += async (_, _) =>
                 {

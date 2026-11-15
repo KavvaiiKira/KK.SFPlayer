@@ -336,7 +336,8 @@ namespace KK.SFPlayer.Services
                             root.GetProperty("position").GetInt32(), root.GetProperty("duration").GetInt32(),
                             root.GetProperty("canSeek").GetBoolean(), root.GetProperty("trackUri").GetString(),
                             root.GetProperty("contextUri").GetString(), root.GetProperty("trackName").GetString(),
-                            root.GetProperty("artists").GetString()));
+                            root.GetProperty("artists").GetString(),
+                            root.TryGetProperty("originalTrackUri", out var originalTrackUri) ? originalTrackUri.GetString() : null));
                         break;
                     case "error":
                         Fail(root.GetProperty("code").GetString() switch

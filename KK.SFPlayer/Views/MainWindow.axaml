@@ -152,12 +152,22 @@
                                     AutomationProperties.Name="{Binding Playback.PlaybackTooltip}"
                                     Command="{Binding Playback.TogglePlaybackCommand}">
                                 <Grid Width="16" Height="16">
-                                    <PathIcon Width="16" Height="16" IsVisible="{Binding Playback.IsPlaying}"
-                                              Data="M3,2 L9,2 L9,22 L3,22 Z M15,2 L21,2 L21,22 L15,22 Z"
-                                              Foreground="{DynamicResource AppTextBrush}" />
-                                    <PathIcon Width="16" Height="16" IsVisible="{Binding !Playback.IsPlaying}"
-                                              Data="M5,2 L19,12 L5,22 Z"
-                                              Foreground="{DynamicResource AppTextBrush}" />
+                                    <Grid IsVisible="{Binding !Playback.IsLoading}">
+                                        <PathIcon Width="16" Height="16" IsVisible="{Binding Playback.IsPlaying}"
+                                                  Data="M3,2 L9,2 L9,22 L3,22 Z M15,2 L21,2 L21,22 L15,22 Z"
+                                                  Foreground="{DynamicResource AppTextBrush}" />
+                                        <PathIcon Width="16" Height="16" IsVisible="{Binding !Playback.IsPlaying}"
+                                                  Data="M5,2 L19,12 L5,22 Z"
+                                                  Foreground="{DynamicResource AppTextBrush}" />
+                                    </Grid>
+                                    <PathIcon x:Name="PlaybackLoader" Classes="playback-loader" Width="16" Height="16"
+                                              IsVisible="{Binding Playback.IsLoading}" RenderTransformOrigin="50%,50%"
+                                              Data="M8,0 A8,8 0 1 1 0,8 L2,8 A6,6 0 1 0 8,2 Z"
+                                              Foreground="{DynamicResource AppPrimaryHoverBrush}">
+                                        <PathIcon.RenderTransform>
+                                            <RotateTransform />
+                                        </PathIcon.RenderTransform>
+                                    </PathIcon>
                                 </Grid>
                             </Button>
                             <Button x:Name="NextTrackButton" Classes="icon-button transport"

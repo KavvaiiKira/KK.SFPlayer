@@ -171,8 +171,7 @@ namespace KK.SFPlayer.ViewModels
                     throw new InvalidOperationException(PlaybackConstants.NoTracks);
                 }
 
-                await _player.PlayAsync(playlist.Uri, first.Position, cancellationToken, first.Uri, GetSort(playlist.Id));
-                _playback.MarkStarted();
+                await _playback.PlayAsync(playlist.Uri, first, GetSort(playlist.Id), cancellationToken);
                 State.Status = string.Empty;
             });
 

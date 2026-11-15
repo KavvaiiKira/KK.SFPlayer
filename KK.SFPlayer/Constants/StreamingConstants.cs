@@ -14,6 +14,7 @@ namespace KK.SFPlayer.Constants
         public const string DeviceUnavailable = "The in-app player disconnected. Press Play to reconnect.";
         public const string Pause = "Pause";
         public const string Play = "Play";
+        public const string Loading = "Loading playback…";
         public const string Resume = "Resume";
         public const string Volume = "Volume";
         public const string Previous = "Previous track";

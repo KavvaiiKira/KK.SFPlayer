@@ -73,9 +73,32 @@ namespace KK.SFPlayer.Tests
 
                 var initialPlaybackButton = window.FindControl<Button>("PlaybackButton")!;
                 Assert.True(initialPlaybackButton.IsEnabled);
+                var loader = window.FindControl<PathIcon>("PlaybackLoader")!;
+                player.PublishPreparation(true);
+                Layout(window);
+                Assert.True(loader.IsVisible);
+                Assert.False(initialPlaybackButton.IsEffectivelyEnabled);
+                player.PublishPreparation(false);
+                player.AutoConfirmPlayback = false;
                 Click(window, initialPlaybackButton.TranslatePoint(new Point(15, 15), window)!.Value);
                 Assert.Equal(viewModel.Library.Playlists[0].Uri, Assert.Single(player.Played).Uri);
                 Assert.Null(viewModel.Playlist.SelectedPlaylist);
+                Layout(window);
+                Assert.True(loader.IsVisible);
+                Assert.False(initialPlaybackButton.IsEffectivelyEnabled);
+                player.TogglePause();
+                player.TogglePause();
+                player.PublishProgress(new PlaybackProgress(0, 180000, true, "spotify:track:0", viewModel.Library.Playlists[0].Uri));
+                var startup = viewModel.Playback.TogglePlaybackCommand.ExecutionTask!;
+                using (var startupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+                {
+                    _ = startup.ContinueWith(_ => startupTimeout.Cancel(), TaskScheduler.Default);
+                    Dispatcher.UIThread.MainLoop(startupTimeout.Token);
+                }
+                Assert.True(startup.IsCompletedSuccessfully);
+                Layout(window);
+                Assert.False(loader.IsVisible);
+                player.AutoConfirmPlayback = true;
                 player.Played.Clear();
 
                 scroll.Offset = new Vector(0, scroll.Extent.Height);
@@ -237,6 +260,8 @@ namespace KK.SFPlayer.Tests
 
                 player.TrackOffsets.Clear();
 
+                var playlistUri = viewModel.Library.Playlists[0].Uri;
+                player.PublishProgress(new PlaybackProgress(1000, 180000, true, "spotify:track:1", playlistUri));
                 var cardPoint = card.TranslatePoint(new Point(155, 65), window)!.Value;
                 Click(window, cardPoint);
                 Layout(window);
@@ -248,8 +273,7 @@ namespace KK.SFPlayer.Tests
                 var detail = window.GetVisualDescendants().OfType<PlaylistDetailView>().Single();
                 var tracksScroll = detail.FindControl<ListBox>("TracksList")!
                     .GetVisualDescendants().OfType<ScrollViewer>().First();
-                var playlistUri = viewModel.Playlist.SelectedPlaylist!.Uri;
-                player.PublishProgress(new PlaybackProgress(1000, 180000, true, "spotify:track:1", playlistUri));
+                Assert.Equal(playlistUri, viewModel.Playlist.SelectedPlaylist!.Uri);
                 Layout(window);
                 var currentRow = detail.GetVisualDescendants().OfType<Border>()
                     .First(border => border.Classes.Contains("track-row") && border.DataContext is TrackInfo { Position: 1 });
@@ -259,7 +283,7 @@ namespace KK.SFPlayer.Tests
                 var tracksList = detail.FindControl<ListBox>("TracksList")!;
                 var durationRight = durationLabel.TranslatePoint(new Point(durationLabel.Bounds.Width, 0), tracksList)!.Value.X;
                 Assert.True(durationRight <= tracksList.Bounds.Width - 22);
-                Assert.Equal(1, currentRow.GetVisualDescendants().OfType<PathIcon>().Single(icon => icon.Classes.Contains("playing-indicator")).Opacity);
+                Assert.Equal(1, currentRow.GetVisualDescendants().OfType<Grid>().Single(icon => icon.Classes.Contains("playing-indicator")).Opacity);
                 player.TogglePause();
                 Assert.Contains("current", currentRow.Classes);
                 Assert.DoesNotContain("playing", currentRow.Classes);
@@ -404,6 +428,12 @@ namespace KK.SFPlayer.Tests
 
         private sealed class PreviewPlayer : IMPlayerService
         {
+            public event EventHandler<bool>? PreparationChanged;
+
+            public void PublishPreparation(bool preparing) => PreparationChanged?.Invoke(this, preparing);
+
+            public bool AutoConfirmPlayback { get; set; } = true;
+
             public event EventHandler<string>? PlaylistChanged { add { } remove { } }
             public event EventHandler<string>? CacheWarning { add { } remove { } }
             public PlaylistPage? GetCachedPlaylists() => null;
@@ -524,6 +554,12 @@ namespace KK.SFPlayer.Tests
             public Task PlayAsync(string playlistUri, int? position, CancellationToken cancellationToken, string? trackUri = null, int sort = 0)
             {
                 Played.Add((playlistUri, position));
+                if (AutoConfirmPlayback)
+                {
+                    _playing = true;
+                    PlayingChanged?.Invoke(this, true);
+                    PublishProgress(new PlaybackProgress(0, 180000, true, trackUri, playlistUri));
+                }
                 return Task.CompletedTask;
             }
 

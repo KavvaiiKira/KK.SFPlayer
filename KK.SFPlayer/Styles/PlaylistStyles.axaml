@@ -1,5 +1,17 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="PathIcon.playback-loader[IsVisible=True]">
+        <Style.Animations>
+            <Animation Duration="0:0:0.8" IterationCount="Infinite" Easing="LinearEasing">
+                <KeyFrame Cue="0%">
+                    <Setter Property="RotateTransform.Angle" Value="0" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="RotateTransform.Angle" Value="360" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
     <Style Selector="Button.icon-button.transport">
         <Setter Property="Width" Value="24" />
         <Setter Property="Height" Value="24" />
@@ -13,7 +25,7 @@
     <Style Selector=":is(TextBlock).track-title">
         <Setter Property="Opacity" Value="0.78" />
     </Style>
-    <Style Selector="PathIcon.playing-indicator, PathIcon.paused-indicator">
+    <Style Selector="Grid.playing-indicator, PathIcon.paused-indicator">
         <Setter Property="Opacity" Value="0" />
     </Style>
     <Style Selector="Border.track-row:pointerover">
@@ -28,8 +40,75 @@
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Border.track-row.current.playing PathIcon.playing-indicator, Border.track-row.current:not(.playing) PathIcon.paused-indicator">
+    <Style Selector="Border.track-row.current.playing Grid.playing-indicator, Border.track-row.current:not(.playing) PathIcon.paused-indicator">
         <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border.equalizer-bar">
+        <Setter Property="Background" Value="{DynamicResource AppPrimaryHoverBrush}" />
+        <Setter Property="CornerRadius" Value="0.5" />
+    </Style>
+    <Style Selector="Border.track-row.current.playing Border.equalizer-bar.left">
+        <Style.Animations>
+            <Animation Duration="0:0:0.72" IterationCount="Infinite" Easing="SineEaseInOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.35" />
+                </KeyFrame>
+                <KeyFrame Cue="25%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.9" />
+                </KeyFrame>
+                <KeyFrame Cue="50%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.5" />
+                </KeyFrame>
+                <KeyFrame Cue="75%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.35" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+    <Style Selector="Border.track-row.current.playing Border.equalizer-bar.middle">
+        <Style.Animations>
+            <Animation Duration="0:0:0.93" IterationCount="Infinite" Easing="SineEaseInOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.85" />
+                </KeyFrame>
+                <KeyFrame Cue="25%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.3" />
+                </KeyFrame>
+                <KeyFrame Cue="50%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                </KeyFrame>
+                <KeyFrame Cue="75%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.5" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.85" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+    <Style Selector="Border.track-row.current.playing Border.equalizer-bar.right">
+        <Style.Animations>
+            <Animation Duration="0:0:0.81" IterationCount="Infinite" Easing="SineEaseInOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.55" />
+                </KeyFrame>
+                <KeyFrame Cue="25%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                </KeyFrame>
+                <KeyFrame Cue="50%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.25" />
+                </KeyFrame>
+                <KeyFrame Cue="75%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.8" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="ScaleTransform.ScaleY" Value="0.55" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
     </Style>
     <Style Selector="Button.playlist-title">
         <Setter Property="MinHeight" Value="24" />
